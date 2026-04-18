@@ -6,15 +6,17 @@
 
 | Item | ID |
 |------|----|
-| **Package ID** | `0xc3c9950da569376b982e5e7e64b493e09771f50a0dc1c7d5e03771c093c95a19` |
-| **Registry** (shared) | `0xa676ee02e4b84353971f4e362b63b0ff7be3ea483b3701226e1e6450e450e4e6` |
-| **AdminCap** (owned) | `0x3b2f3af7cd71fc77a795ac37296ce2b9b0e9a9fbd64cac606728e6607107c0ac` |
-| **UpgradeCap** | `0x2269844292ece5b7517f3db5be4cc196434ba479e664f670c89fc3b89dac4c9b` |
+| **Package ID** | `0x5d53be7618415cf787af2bb41c311f534c5285f71a73d0e11fa451a6185069fe` |
+| **Registry** (shared) | `0xa9d9a72bcc4f0017fdc3368049109e70e3f9eedcb9b81c1aeadeaa56562a6df3` |
+| **AdminCap** (owned) | `0x3905d5cfcf61b85409e431521e8e0bc6cdcae6d0b13ddb620c6468b021425221` |
+| **UpgradeCap** | `0x733095bec17c51792999b3a463ae8f149b65277ea61f710d1257bff7f6f6547e` |
 | **Network** | Sui Testnet |
 | **Deployer** | `0xdfdd6484f7f94c80daefbfee06728f60236fde6bc229e30453306166a6b5691e` |
-| **Tx Digest** | `7o71FagQ7toF63VqRbD564sFEKSm1bGJWKKMjPZz8sNA` |
+| **Tx Digest** | `FCdWJ9Q3g2FeP9Zdfxy9QErBB5WA8UER7XMQMVr5qTWm` |
 
-Explorer: [View on SuiScan](https://suiscan.xyz/testnet/object/0xc3c9950da569376b982e5e7e64b493e09771f50a0dc1c7d5e03771c093c95a19)
+Explorer: [View on SuiScan](https://suiscan.xyz/testnet/object/0x5d53be7618415cf787af2bb41c311f534c5285f71a73d0e11fa451a6185069fe)
+
+> **Note:** Poll creation is permissionless — anyone can create a poll. The poll creator becomes the admin of that poll (register voters, start voting, force-finalize).
 
 ## Move Modules
 

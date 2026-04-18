@@ -1,12 +1,13 @@
 /// DataAsset management — register encrypted datasets.
+/// Registration is permissionless — anyone can register a dataset.
 module orcavote::data_asset;
 
-use orcavote::registry::{Self, Registry, AdminCap};
+use orcavote::registry::{Self, Registry};
 
 /// Register a new encrypted dataset. Emits `DataAssetRegistered`.
+/// Anyone can register — the caller is recorded as the owner.
 public fun register(
     registry: &mut Registry,
-    _cap: &AdminCap,
     walrus_blob_id: vector<u8>,
     seal_identity: vector<u8>,
     name: vector<u8>,

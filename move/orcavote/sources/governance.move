@@ -1,9 +1,13 @@
 /// Governance — create polls, register voters, start voting, finalize.
+///
+/// Poll creation is permissionless — anyone can create a poll.
+/// Poll management (register voters, start voting, force-finalize)
+/// is restricted to the poll creator (stored as `admin` in Poll).
 module orcavote::governance;
 
 use sui::clock::Clock;
 use sui::groth16;
-use orcavote::registry::{Self, Registry, AdminCap};
+use orcavote::registry::{Self, Registry};
 
 // ═══════════════════════════════════════════════════════════════════
 // Error codes
@@ -11,6 +15,7 @@ use orcavote::registry::{Self, Registry, AdminCap};
 
 const EPollAlreadyFinalized: u64 = 7;
 const EPollNotExpired: u64 = 3;
+const ENotPollAdmin: u64 = 14;
 
 // Status constants (mirror registry)
 const STATUS_SETUP: u8 = 0;
@@ -23,11 +28,11 @@ const STATUS_REJECTED: u8 = 3;
 // ═══════════════════════════════════════════════════════════════════
 
 /// Create a new poll. Starts in `Setup` status.
+/// Anyone can create a poll — the caller becomes the poll admin.
 ///
 /// `vk_bytes`: Arkworks-serialized Groth16 verifying key (BN254).
 public fun create_poll(
     registry: &mut Registry,
-    _cap: &AdminCap,
     data_blob_id: vector<u8>,
     data_seal_identity: vector<u8>,
     council_root: vector<u8>,
@@ -72,34 +77,38 @@ public fun create_poll(
 // ═══════════════════════════════════════════════════════════════════
 
 /// Register a single voter's encrypted identity.json reference.
+/// Only the poll creator can register voters.
 public fun register_voter(
     registry: &mut Registry,
-    _cap: &AdminCap,
     poll_id: ID,
     voter: address,
     walrus_blob_id: vector<u8>,
     seal_identity: vector<u8>,
+    ctx: &TxContext,
 ) {
+    assert_poll_admin(registry, poll_id, ctx);
     registry::register_voter_ref(registry, poll_id, voter, walrus_blob_id, seal_identity);
     registry::emit_voter_registered(poll_id, voter, walrus_blob_id);
 }
 
-/// Batch register multiple voters.
+/// Batch register multiple voters. Only the poll creator can call.
 public fun register_voters(
     registry: &mut Registry,
-    cap: &AdminCap,
     poll_id: ID,
     voters: vector<address>,
     walrus_blob_ids: vector<vector<u8>>,
     seal_identities: vector<vector<u8>>,
+    ctx: &TxContext,
 ) {
+    assert_poll_admin(registry, poll_id, ctx);
     let mut i = 0;
     let len = voters.length();
     while (i < len) {
-        register_voter(
-            registry, cap, poll_id,
+        registry::register_voter_ref(
+            registry, poll_id,
             voters[i], walrus_blob_ids[i], seal_identities[i],
         );
+        registry::emit_voter_registered(poll_id, voters[i], walrus_blob_ids[i]);
         i = i + 1;
     };
 }
@@ -108,12 +117,13 @@ public fun register_voters(
 // Start Voting
 // ═══════════════════════════════════════════════════════════════════
 
-/// Transition poll from Setup → Voting.
+/// Transition poll from Setup → Voting. Only the poll creator can call.
 public fun start_voting(
     registry: &mut Registry,
-    _cap: &AdminCap,
     poll_id: ID,
+    ctx: &TxContext,
 ) {
+    assert_poll_admin(registry, poll_id, ctx);
     let poll = &mut registry.borrow_polls_mut()[poll_id];
     assert!(registry::poll_status(poll) == STATUS_SETUP, EPollAlreadyFinalized);
     registry::poll_set_status(poll, STATUS_VOTING);
@@ -147,12 +157,13 @@ public fun finalize(
     );
 }
 
-/// Admin force-finalize (early termination).
+/// Poll creator can force-finalize (early termination).
 public fun admin_finalize(
     registry: &mut Registry,
-    _cap: &AdminCap,
     poll_id: ID,
+    ctx: &TxContext,
 ) {
+    assert_poll_admin(registry, poll_id, ctx);
     let poll = &mut registry.borrow_polls_mut()[poll_id];
     assert!(registry::poll_status(poll) == STATUS_VOTING, EPollAlreadyFinalized);
 
@@ -168,6 +179,16 @@ public fun admin_finalize(
         registry::poll_yes_count(poll),
         registry::poll_no_count(poll),
     );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Internal helpers
+// ═══════════════════════════════════════════════════════════════════
+
+/// Assert that the transaction sender is the poll creator.
+fun assert_poll_admin(registry: &Registry, poll_id: ID, ctx: &TxContext) {
+    let poll = &registry.borrow_polls()[poll_id];
+    assert!(registry::poll_admin(poll) == ctx.sender(), ENotPollAdmin);
 }
 
 // ═══════════════════════════════════════════════════════════════════
