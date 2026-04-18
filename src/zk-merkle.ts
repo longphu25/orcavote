@@ -66,16 +66,15 @@ export function initZkMerkleWasm(): Promise<WasmModule> {
   wasmStatus = 'loading'
 
   initPromise = new Promise<WasmModule>((resolve, reject) => {
-    const base = import.meta.env.BASE_URL ?? '/'
-    const jsUrl = new URL(`${base}sui-zk-merkle/pkg/zk_merkle_wasm.js`, location.origin).href
-    const wasmUrl = `${base}sui-zk-merkle/wasm/zk-merkle.wasm`
+    const origin = window.location.origin
+    const base = (import.meta.env.BASE_URL ?? '/').replace(/\/$/, '')
+    const jsUrl = `${origin}${base}/sui-zk-merkle/pkg/zk_merkle_wasm.js`
+    const wasmUrl = `${origin}${base}/sui-zk-merkle/wasm/zk-merkle.wasm`
 
     // Create a module script that imports the glue and exposes it globally
     const callbackName = `__zkMerkleWasmCallback_${Date.now()}`
-    const scriptContent = `
-      import init, { build_merkle_tree, verify_proof } from '${jsUrl}';
-      window['${callbackName}']({ init, build_merkle_tree, verify_proof });
-    `
+    const scriptContent = `import init, { build_merkle_tree, verify_proof } from '${jsUrl}';
+window['${callbackName}']({ init, build_merkle_tree, verify_proof });`
     const blob = new Blob([scriptContent], { type: 'text/javascript' })
     const blobUrl = URL.createObjectURL(blob)
 
@@ -86,7 +85,7 @@ export function initZkMerkleWasm(): Promise<WasmModule> {
       verify_proof: WasmModule['verify_proof']
     }) => {
       try {
-        await mod.init(new URL(wasmUrl, location.origin))
+        await mod.init(wasmUrl)
         wasm = { build_merkle_tree: mod.build_merkle_tree, verify_proof: mod.verify_proof }
         wasmStatus = 'ready'
         resolve(wasm)
