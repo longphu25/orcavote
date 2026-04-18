@@ -1,3 +1,9 @@
+import { useState } from 'react'
+import {
+  ConnectModal,
+  useCurrentAccount,
+  useDisconnectWallet,
+} from '@mysten/dapp-kit'
 import {
   Shield,
   Vote,
@@ -13,6 +19,8 @@ import {
   ShieldCheck,
   Fingerprint,
   Network,
+  Wallet,
+  LogOut,
 } from 'lucide-react'
 
 /* ────────────────────────────────────────────
@@ -33,6 +41,82 @@ const C = {
   accentHover: '#D97706',
   green: '#10B981',
 } as const
+
+/* ────────────────────────────────────────────
+   Wallet Connect Button
+   ──────────────────────────────────────────── */
+function WalletButton() {
+  const currentAccount = useCurrentAccount()
+  const { mutate: disconnect } = useDisconnectWallet()
+  const [open, setOpen] = useState(false)
+
+  if (currentAccount) {
+    const addr = currentAccount.address
+    const short = `${addr.slice(0, 6)}…${addr.slice(-4)}`
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div
+          style={{
+            padding: '8px 16px',
+            borderRadius: 10,
+            border: `1px solid ${C.border}`,
+            background: C.surface,
+            fontSize: 13,
+            fontWeight: 600,
+            color: C.primary,
+            fontFamily: "'Exo 2', sans-serif",
+          }}
+        >
+          {short}
+        </div>
+        <button
+          onClick={() => disconnect()}
+          style={{
+            padding: 8,
+            borderRadius: 10,
+            border: `1px solid ${C.border}`,
+            background: 'transparent',
+            color: C.textMuted,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+          }}
+          aria-label="Disconnect wallet"
+        >
+          <LogOut size={16} />
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <ConnectModal
+      open={open}
+      onOpenChange={(isOpen) => setOpen(isOpen)}
+      trigger={
+        <button
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '8px 20px',
+            borderRadius: 10,
+            background: C.accent,
+            color: '#000',
+            fontSize: 14,
+            fontWeight: 700,
+            border: 'none',
+            cursor: 'pointer',
+            fontFamily: "'Exo 2', sans-serif",
+          }}
+        >
+          <Wallet size={16} />
+          Connect Wallet
+        </button>
+      }
+    />
+  )
+}
 
 /* ────────────────────────────────────────────
    Navbar
@@ -107,21 +191,7 @@ function Navbar() {
               {label}
             </a>
           ))}
-          <a
-            href="#cta"
-            style={{
-              padding: '8px 20px',
-              borderRadius: 10,
-              background: C.accent,
-              color: '#000',
-              fontSize: 14,
-              fontWeight: 700,
-              textDecoration: 'none',
-              cursor: 'pointer',
-            }}
-          >
-            Get Started
-          </a>
+          <WalletButton />
         </div>
       </div>
     </nav>
