@@ -68,12 +68,15 @@ template OrcaVote(TREE_DEPTH) {
 
     // Private inputs
     signal input identity_secret;
+    signal input identity_nullifier;
     signal input path_elements[TREE_DEPTH];
     signal input path_indices[TREE_DEPTH];
 
-    // 1. Compute identity_commitment = Poseidon(identity_secret)
-    component commitHasher = Poseidon(1);
-    commitHasher.inputs[0] <== identity_secret;
+    // 1. Compute identity_commitment = Poseidon(identity_nullifier, identity_secret)
+    //    Must match the WASM identity builder's commitment formula
+    component commitHasher = Poseidon(2);
+    commitHasher.inputs[0] <== identity_nullifier;
+    commitHasher.inputs[1] <== identity_secret;
     signal identity_commitment;
     identity_commitment <== commitHasher.out;
 

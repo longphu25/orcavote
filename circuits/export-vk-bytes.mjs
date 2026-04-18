@@ -56,23 +56,28 @@ function encodeG1Compressed(point) {
  * G2 point has coordinates in Fp2 = (c0, c1) where element = c0 + c1*u
  * Arkworks compressed G2: x (Fp2) in LE, with greatest flag.
  * x is serialized as c0 (32 bytes LE) + c1 (32 bytes LE)
+ *
+ * Arkworks "greatest" flag for Fp2 uses lexicographic ordering:
+ *   compare c1 first; if c1 == 0, compare c0.
+ *   "greatest" means y > -y in this ordering.
  */
 function encodeG2Compressed(point) {
   // snarkjs format: [[x_c0, x_c1], [y_c0, y_c1], [z_c0, z_c1]]
   // For affine (z=1): x = (x_c0, x_c1), y = (y_c0, y_c1)
   const x_c0 = toLEBytes(point[0][0])
   const x_c1 = toLEBytes(point[0][1])
-  const y_c1 = BigInt(point[1][1])
 
   const result = new Uint8Array(64)
   result.set(x_c0, 0)
   result.set(x_c1, 32)
 
-  // Greatest flag based on y's c1 component (or c0 if c1 == 0)
+  // Arkworks lexicographic "greatest" flag for G2 y-coordinate:
+  // Compare y.c1 first. If y.c1 > P/2 → greatest.
+  // If y.c1 == 0, compare y.c0: if y.c0 > P/2 → greatest.
   const y_c0 = BigInt(point[1][0])
-  const yFlag = x_c1.every(b => b === 0)
-    ? false  // If c1 of x is 0, skip (degenerate case)
-    : y_c1 > P / 2n
+  const y_c1 = BigInt(point[1][1])
+  const half = P / 2n
+  const yFlag = y_c1 !== 0n ? y_c1 > half : y_c0 > half
   if (yFlag) {
     result[63] |= 0x80
   }
@@ -93,6 +98,16 @@ parts.push(encodeG2Compressed(vk.vk_gamma_2))
 
 // delta_g2 (64 bytes)
 parts.push(encodeG2Compressed(vk.vk_delta_2))
+
+// IC length prefix (u64 LE — required by Arkworks serialize_compressed)
+const icCountBytes = new Uint8Array(8)
+const icCount = vk.IC.length
+icCountBytes[0] = icCount & 0xFF
+icCountBytes[1] = (icCount >> 8) & 0xFF
+icCountBytes[2] = (icCount >> 16) & 0xFF
+icCountBytes[3] = (icCount >> 24) & 0xFF
+// bytes 4-7 stay 0 (u64 LE, count fits in u32)
+parts.push(icCountBytes)
 
 // IC points (each 32 bytes)
 for (const ic of vk.IC) {
@@ -119,7 +134,7 @@ console.log(`✓ vk_bytes written:`)
 console.log(`  Binary: ${outPath} (${vkBytes.length} bytes)`)
 console.log(`  Hex:    ${hexPath}`)
 console.log(`  IC points: ${vk.IC.length}`)
-console.log(`  Total: ${32 + 64*3 + 32*vk.IC.length} bytes = alpha(32) + beta(64) + gamma(64) + delta(64) + IC(${vk.IC.length}×32)`)
+console.log(`  Total: ${32 + 64*3 + 8 + 32*vk.IC.length} bytes = alpha(32) + beta(64) + gamma(64) + delta(64) + ic_count(8) + IC(${vk.IC.length}×32)`)
 console.log(``)
 console.log(`  Use in TypeScript:`)
 console.log(`    const vkBytes = new Uint8Array([...]) // from hex file`)
