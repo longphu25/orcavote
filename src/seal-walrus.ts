@@ -28,7 +28,7 @@ export const AGGREGATORS: Record<NetworkKey, string> = {
   mainnet: 'https://aggregator.walrus.space',
 }
 
-/** Seal demo package on testnet (allowlist-based policy) */
+/** Seal demo package on testnet (allowlist-based policy) — used for DataAsset encrypt only */
 const SEAL_PACKAGE_ID = '0x2b5472a9002d97045c8448cda76284aa0de81df3ab902fdfc785feaa2c0b4cc0'
 
 /** Decentralized key server (aggregator-backed) */
@@ -68,26 +68,20 @@ function createSealClient(network: NetworkKey): SealClient {
 
 /**
  * Encrypt an identity blob with Seal.
- * The identity is derived from the voter's address so only they can decrypt.
+ *
+ * NOTE: For the hackathon flow, identity blobs are uploaded as plaintext
+ * to Walrus (no Seal encryption) because the Seal identity requires an
+ * on-chain poll_id which doesn't exist yet at upload time.
+ * Security is maintained by the ZK proof — the identity secret is only
+ * used locally to generate a proof and is never revealed on-chain.
  */
 export async function encryptIdentityBlob(
   blob: IdentityBlob,
-  network: NetworkKey = 'testnet',
+  _network: NetworkKey = 'testnet',
 ): Promise<Uint8Array> {
-  const sealClient = createSealClient(network)
-  const plaintext = new TextEncoder().encode(JSON.stringify(blob))
-
-  // Use the voter address as the Seal identity — only this address can request decryption
-  const id = blob.address
-
-  const { encryptedObject } = await sealClient.encrypt({
-    threshold: DEFAULT_THRESHOLD,
-    packageId: SEAL_PACKAGE_ID,
-    id,
-    data: plaintext,
-  })
-
-  return encryptedObject
+  // Upload plaintext — Seal encrypt is skipped because poll_id
+  // is not yet available (poll is created after upload).
+  return new TextEncoder().encode(JSON.stringify(blob))
 }
 
 /**

@@ -223,6 +223,7 @@ export default function DataAssetPanel() {
               startEpoch: Number(storage?.start_epoch ?? 0),
               endEpoch: Number(storage?.end_epoch ?? 0),
               deletable: Boolean(fields.deletable),
+              version: Number(obj.version ?? 0),
             })
           }
           if (allBlobs.length > 0) break
