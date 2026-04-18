@@ -259,23 +259,63 @@ VoterIdentityRef {
 - CSS type declarations (`vite-env.d.ts`)
 - Shared design tokens (`theme.ts`)
 
+#### Move Smart Contracts (on-chain) — Deployed Testnet
+- Package ID: `0x5d53be7618415cf787af2bb41c311f534c5285f71a73d0e11fa451a6185069fe`
+- Registry (shared): `0xa9d9a72bcc4f0017fdc3368049109e70e3f9eedcb9b81c1aeadeaa56562a6df3`
+- **Registry pattern**: shared singleton chứa toàn bộ state (polls, data_assets, voter_refs)
+- **5 modules**:
+  - `registry.move`: core types, init, AdminCap, package-internal accessors
+  - `data_asset.move`: register encrypted datasets (permissionless)
+  - `governance.move`: create poll (permissionless), register voters, start/finalize voting
+  - `zk_vote.move`: Groth16 BN254 proof verification, nullifier dedup, on-chain tally
+  - `seal_policy.move`: Seal key-server entry functions (identity blob + dataset approval)
+- **Permissionless poll creation**: ai cũng tạo được poll, người tạo = poll admin
+- **On-chain ZK verification**: `sui::groth16::verify_groth16_proof(bn254(), pvk, inputs, proof)`
+- **Seal integration**: 2 entry functions cho dry-run approval (identity + dataset)
+- Full technical docs: `move/orcavote/TECHNICAL.md`
+- Makefile: `move/orcavote/Makefile` (build, test, deploy, deploy-fresh)
+
+#### ZK Circuit (Circom + Groth16)
+- **Circuit**: `circuits/orcavote.circom` — Semaphore-style trên BN254
+  - Poseidon Merkle membership (tree depth 20, ~1M voters)
+  - Nullifier = Poseidon(identity_secret, external_nullifier) — chống double-vote
+  - Signal hash = Poseidon(vote_choice) — commit vào YES/NO
+  - 5314 constraints, 4 public inputs, 41 private inputs
+- **Trusted setup**: Hermez powers of tau 2^14 + dev contribution
+- **Browser artifacts** (`public/zk-circuit/`):
+  - `circuit.wasm` (2 MB) — witness calculator cho snarkjs
+  - `circuit_final.zkey` (3.2 MB) — proving key cho snarkjs
+  - `verification_key.json` — human-readable VK
+  - `vk_bytes.bin` (384 bytes) — Arkworks-serialized VK cho `create_poll`
+- **Browser helper**: `src/zk-prove.ts`
+  - `loadVkBytes()` — load Arkworks VK (cố định, dùng chung tất cả polls)
+  - `generateProof()` — snarkjs fullProve trong browser
+  - `formatForSui()` — convert proof → `proofBytes` + `publicInputsBytes` + `nullifier`
+  - `hashSignal()` / `hashExternalNullifier()` — Poseidon helpers
+- **Build pipeline**: `circuits/Makefile` (compile → setup → export → copy to public/)
+- **vk_bytes conversion**: `circuits/export-vk-bytes.mjs` (snarkjs VK JSON → Arkworks binary)
+
 ---
 
 ### ❌ CHƯA LÀM
 
 #### Move Smart Contracts (on-chain)
-- [ ] `data_asset.move`: quản lý `DataAsset` (walrus_blob_id, seal_identity, owner, meta)
-- [ ] `governance.move`: quản lý `AccessRequest`/`Poll`, finalize logic, threshold
-- [ ] `zk_vote.move`: verify Groth16 proof, manage nullifiers, update tally YES/NO
-- [ ] Seal policy Move module: check trạng thái poll trước khi cấp key
-- [ ] `VoterIdentityRef` struct on-chain (poll_id, voter, walrus_blob_id, seal_identity)
-- [ ] Deploy lên testnet
+- [x] `registry.move`: core types, Registry singleton, AdminCap, init, package-internal accessors
+- [x] `data_asset.move`: quản lý `DataAsset` (walrus_blob_id, seal_identity, owner, meta) — permissionless
+- [x] `governance.move`: quản lý Poll, finalize logic, threshold — permissionless create, poll admin manage
+- [x] `zk_vote.move`: verify Groth16 proof (BN254), manage nullifiers, update tally YES/NO
+- [x] `seal_policy.move`: Seal key-server entry functions (identity blob + dataset approval)
+- [x] `VoterIdentityRef` struct on-chain (poll_id, voter, walrus_blob_id, seal_identity)
+- [x] Deploy lên testnet — Package `0x5d53be7618415cf787af2bb41c311f534c5285f71a73d0e11fa451a6185069fe`
+- [x] Technical documentation: `move/orcavote/TECHNICAL.md`
 
 #### ZK Circuit (Circom + Groth16)
-- [ ] Circom circuit kiểu Semaphore (Merkle membership + nullifier + signal)
-- [ ] Groth16 trusted setup (powers of tau + phase 2)
-- [ ] Export verifying key cho Move contract
-- [ ] WASM prover cho browser (snarkjs hoặc custom)
+- [x] Circom circuit kiểu Semaphore: `circuits/orcavote.circom` (5314 constraints, BN254, tree depth 20)
+- [x] Groth16 trusted setup (Hermez powers of tau 2^14 + dev contribution)
+- [x] Export verifying key → `vk_bytes.bin` (384 bytes Arkworks format) cho Move contract
+- [x] WASM prover cho browser: `circuit.wasm` + `circuit_final.zkey` via snarkjs
+- [x] Browser helper: `src/zk-prove.ts` (loadVkBytes, generateProof, formatForSui)
+- [x] Build pipeline: `circuits/Makefile` (compile → setup → export → copy to public/)
 
 #### Voter Flow UI
 - [ ] Query `VoterIdentityRef` cho connected wallet → hiện danh sách polls
@@ -285,10 +325,11 @@ VoterIdentityRef {
 - [ ] Hiện kết quả finalize (Approved/Rejected)
 
 #### Admin Flow UI
-- [ ] Form tạo poll mới (blob_id, seal_identity, voter list, threshold, deadline)
-- [ ] Batch gen identities + encrypt + upload (hiện tại chỉ có gen + upload, chưa gắn vào poll on-chain)
-- [ ] Tạo `VoterIdentityRef` on-chain cho mỗi voter
-- [ ] Finalize poll button
+- [ ] Form tạo poll mới (blob_id, seal_identity, voter list, threshold, deadline) → gọi `governance::create_poll`
+- [ ] Batch gen identities + encrypt + upload + gắn vào poll on-chain
+- [ ] Tạo `VoterIdentityRef` on-chain cho mỗi voter → gọi `governance::register_voter`
+- [ ] Start voting button → gọi `governance::start_voting`
+- [ ] Finalize poll button → gọi `governance::finalize` hoặc `governance::admin_finalize`
 
 #### Requester Flow UI
 - [ ] Form tạo `AccessRequest` (data_asset_id, purpose, threshold)
@@ -317,9 +358,9 @@ VoterIdentityRef {
 | Wallet Connect | ✅ Done | DAppKit, network switch, SuiNS, token list |
 | ZK Merkle WASM | ✅ Done | Build tree, gen identities, verify proof |
 | Seal + Walrus | ✅ Done | Encrypt identity blobs, upload to Walrus, upload tree JSON |
-| Move Contracts | ❌ Not started | Scaffold only, no logic |
-| ZK Circuit | ❌ Not started | No Circom circuit yet |
+| Move Contracts | ✅ Done | 5 modules: registry, data_asset, governance, zk_vote, seal_policy. Deployed testnet `0x5d53be76...` |
+| ZK Circuit | ✅ Done | Circom Semaphore-style (5314 constraints, BN254). Trusted setup + vk_bytes + browser prover |
 | Voter UI | ❌ Not started | No poll list, no vote button |
-| Admin UI | 🟡 Partial | Gen + upload identities works, but not tied to on-chain poll |
+| Admin UI | 🟡 Partial | Gen + upload identities works, chưa gắn on-chain poll |
 | Requester UI | ❌ Not started | No access request flow |
 | CLI Scripts | ❌ Not started | No CLI wrappers |
