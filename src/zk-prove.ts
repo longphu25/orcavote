@@ -7,7 +7,7 @@
  * File sizes (tree depth 10):
  *   circuit.wasm        ~2.0 MB  (witness calculator)
  *   circuit_final.zkey  ~1.7 MB  (proving key)
- *   vk_bytes.bin          384 B  (verifying key for create_poll)
+ *   vk_bytes.bin          392 B  (verifying key for create_poll)
  *
  * Loading strategy:
  *   - vk_bytes.bin: fetched on demand (tiny, for create_poll)
@@ -92,8 +92,10 @@ export function preloadCircuit(): Promise<void> {
 // ═══════════════════════════════════════════════════════════════════
 
 export interface ProofInput {
-  /** Voter's identity secret (decimal string from identity.json) */
+  /** Voter's identity secret (hex or decimal string from identity.json) */
   identity_secret: string
+  /** Voter's identity nullifier (hex or decimal string from identity.json) */
+  identity_nullifier: string
   /** Merkle path sibling hashes (decimal strings) */
   path_elements: string[]
   /** Merkle path direction indices (0 or 1) */
@@ -135,17 +137,19 @@ export async function generateProof(input: ProofInput): Promise<ProofResult> {
   // Pre-compute nullifier_hash (public input constrained by circuit)
   const { poseidon2 } = await import('poseidon-lite')
   const nullifierHash = poseidon2([
-    BigInt(input.identity_secret),
-    BigInt(input.external_nullifier),
+    toBigInt(input.identity_secret),
+    toBigInt(input.external_nullifier),
   ]).toString()
 
+  // snarkjs expects all values as decimal strings — convert hex if needed
   const circuitInput = {
-    merkle_root: input.merkle_root,
+    merkle_root: toBigInt(input.merkle_root).toString(),
     nullifier_hash: nullifierHash,
-    signal_hash: input.signal_hash,
-    external_nullifier: input.external_nullifier,
-    identity_secret: input.identity_secret,
-    path_elements: input.path_elements,
+    signal_hash: toBigInt(input.signal_hash).toString(),
+    external_nullifier: toBigInt(input.external_nullifier).toString(),
+    identity_secret: toBigInt(input.identity_secret).toString(),
+    identity_nullifier: toBigInt(input.identity_nullifier).toString(),
+    path_elements: input.path_elements.map(e => toBigInt(e).toString()),
     path_indices: input.path_indices,
   }
 
@@ -213,13 +217,25 @@ export async function hashSignal(choice: number): Promise<string> {
  */
 export async function hashExternalNullifier(pollId: string): Promise<string> {
   const { poseidon1 } = await import('poseidon-lite')
-  const pollBigint = BigInt(pollId.startsWith('0x') ? pollId : `0x${pollId}`)
+  const pollBigint = toBigInt(pollId)
   return poseidon1([pollBigint]).toString()
 }
 
 // ═══════════════════════════════════════════════════════════════════
 // Internal: Arkworks encoding
 // ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Convert a string to BigInt, handling both decimal and hex formats.
+ * Hex strings (containing a-f) get 0x prefix if missing.
+ */
+function toBigInt(s: string): bigint {
+  if (s.startsWith('0x') || s.startsWith('0X')) return BigInt(s)
+  // If it looks like hex (contains a-f), add 0x prefix
+  if (/[a-fA-F]/.test(s)) return BigInt(`0x${s}`)
+  // Otherwise treat as decimal
+  return BigInt(s)
+}
 
 const P = 21888242871839275222246405745257275088696311157297823662689037894645226208583n
 
