@@ -36,6 +36,7 @@ const TESTNET_KEY_SERVERS = [
   {
     objectId: '0xb012378c9f3799fb5b1a7083da74a4069e3c3f1c93de0b27212a5799ce1e1e98',
     weight: 1,
+    aggregatorUrl: 'https://seal-aggregator-testnet.mystenlabs.com',
   },
 ]
 
@@ -153,6 +154,58 @@ export async function encryptAndUpload(
     walrusUrl,
     encryptedSize: encrypted.length,
   }
+}
+
+/**
+ * Encrypt arbitrary plaintext with Seal (using ownerAddress as identity).
+ * Returns the encrypted bytes only (no Walrus upload).
+ */
+export async function encryptRaw(
+  plaintext: Uint8Array,
+  ownerAddress: string,
+  network: NetworkKey = 'testnet',
+): Promise<Uint8Array> {
+  const sealClient = createSealClient(network)
+  const { encryptedObject } = await sealClient.encrypt({
+    threshold: DEFAULT_THRESHOLD,
+    packageId: SEAL_PACKAGE_ID,
+    id: ownerAddress,
+    data: plaintext,
+  })
+  return encryptedObject
+}
+
+/**
+ * Encrypt arbitrary plaintext with Seal (using ownerAddress as identity) and upload to Walrus.
+ */
+export async function encryptAndUploadRaw(
+  plaintext: Uint8Array,
+  ownerAddress: string,
+  network: NetworkKey = 'testnet',
+  epochs: number = DEFAULT_EPOCHS,
+): Promise<{ blobId: string; walrusUrl: string; encryptedSize: number }> {
+  const sealClient = createSealClient(network)
+  const { encryptedObject } = await sealClient.encrypt({
+    threshold: DEFAULT_THRESHOLD,
+    packageId: SEAL_PACKAGE_ID,
+    id: ownerAddress,
+    data: plaintext,
+  })
+  const { blobId, walrusUrl } = await uploadToWalrus(encryptedObject, network, epochs)
+  return { blobId, walrusUrl, encryptedSize: encryptedObject.length }
+}
+
+/**
+ * Fetch a blob from Walrus aggregator by blob ID.
+ */
+export async function fetchBlobFromWalrus(
+  blobId: string,
+  network: NetworkKey = 'testnet',
+): Promise<Uint8Array> {
+  const url = `${AGGREGATORS[network]}/v1/blobs/${blobId}`
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`Walrus fetch ${res.status}: ${await res.text()}`)
+  return new Uint8Array(await res.arrayBuffer())
 }
 
 /**

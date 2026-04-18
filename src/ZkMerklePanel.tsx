@@ -13,12 +13,15 @@ import {
   Lock,
   ExternalLink,
   CloudUpload,
+  Database,
 } from 'lucide-react'
 import { C } from './theme'
 import { initZkMerkleWasm, getWasmStatus } from './zk-merkle'
 import type { MerkleResult } from './zk-merkle'
 import { encryptAndUpload, encryptAndUploadAll, uploadToWalrus, AGGREGATORS } from './seal-walrus'
 import type { UploadResult, NetworkKey } from './seal-walrus'
+import BlobIdPicker from './BlobIdPicker'
+import type { WalrusBlob } from './BlobIdPicker'
 
 /* ─── styles ─── */
 const card = {
@@ -87,6 +90,10 @@ export default function ZkMerklePanel() {
   // Tree upload state
   const [treeUploadResult, setTreeUploadResult] = useState<{ blobId: string; walrusUrl: string } | null>(null)
   const [treeUploading, setTreeUploading] = useState(false)
+
+  // Data Asset blob ID picker
+  const [blobPickerOpen, setBlobPickerOpen] = useState(false)
+  const [selectedBlob, setSelectedBlob] = useState<WalrusBlob | null>(null)
 
   const network = (ctx.network ?? 'testnet') as NetworkKey
 
@@ -254,6 +261,35 @@ export default function ZkMerklePanel() {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
           <div><span style={label}>Poll ID</span><input style={input} placeholder="poll_001" value={pollId} onChange={(e) => setPollId(e.target.value)} /></div>
           <div><span style={label}>Title</span><input style={input} placeholder="DAO Vote #1" value={pollTitle} onChange={(e) => setPollTitle(e.target.value)} /></div>
+        </div>
+        <div style={{ marginBottom: 16 }}>
+          <span style={label}>Data Asset Blob ID</span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              style={{ ...input, flex: 1 }}
+              placeholder="Blob ID from Walrus"
+              value={selectedBlob?.blobId ?? ''}
+              readOnly
+            />
+            <button
+              onClick={() => setBlobPickerOpen(true)}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '10px 16px', borderRadius: 10,
+                border: `1px solid ${C.border}`, background: C.surface,
+                color: C.accent, fontSize: 13, fontWeight: 600,
+                cursor: 'pointer', fontFamily: "'Exo 2',sans-serif",
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <Database size={14} /> Chọn Blob
+            </button>
+          </div>
+          {selectedBlob && (
+            <div style={{ marginTop: 6, fontSize: 11, color: C.green }}>
+              ✓ Object: {selectedBlob.objectId.slice(0, 10)}…{selectedBlob.objectId.slice(-6)} · {selectedBlob.size > 0 ? `${(selectedBlob.size / 1024).toFixed(1)} KB` : ''}
+            </div>
+          )}
         </div>
         <div style={{ marginBottom: 20 }}>
           <span style={label}>Signal (vote value / action)</span>
@@ -467,6 +503,12 @@ export default function ZkMerklePanel() {
       )}
 
       <a ref={dlRef} style={{ display: 'none' }} />
+
+      <BlobIdPicker
+        open={blobPickerOpen}
+        onClose={() => setBlobPickerOpen(false)}
+        onSelect={(blob) => setSelectedBlob(blob)}
+      />
     </div>
   )
 }

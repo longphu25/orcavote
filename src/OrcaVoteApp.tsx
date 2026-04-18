@@ -17,8 +17,11 @@ import {
   Copy,
   Check,
   AtSign,
+  Database,
+  Vote,
 } from 'lucide-react'
 import { C } from './theme'
+import DataAssetPanel from './DataAssetPanel'
 import ZkMerklePanel from './ZkMerklePanel'
 
 /* ─── helpers ─── */
@@ -30,7 +33,6 @@ function formatBalance(raw: string, decimals = 9): string {
 }
 
 function shortCoinType(coinType: string): string {
-  // "0x2::sui::SUI" → "SUI"
   const parts = coinType.split('::')
   return parts[parts.length - 1] ?? coinType
 }
@@ -141,7 +143,6 @@ function WalletPanel({ onClose }: { onClose: () => void }) {
         zIndex: 100, overflow: 'hidden',
       }}
     >
-      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: `1px solid ${C.border}` }}>
         <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 14, fontWeight: 600, color: C.heading }}>Wallet</span>
         <button onClick={onClose} style={{ background: 'none', border: 'none', color: C.textMuted, cursor: 'pointer', display: 'flex', padding: 4 }} aria-label="Close">
@@ -149,92 +150,58 @@ function WalletPanel({ onClose }: { onClose: () => void }) {
         </button>
       </div>
 
-      {/* SuiNS Name */}
       {suiNSName && (
         <div style={{ padding: '12px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 8 }}>
           <AtSign size={14} color={C.accent} />
-          <span style={{ fontSize: 15, fontWeight: 700, color: C.accent, fontFamily: "'Exo 2',sans-serif" }}>
-            {suiNSName}
-          </span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: C.accent, fontFamily: "'Exo 2',sans-serif" }}>{suiNSName}</span>
         </div>
       )}
 
-      {/* Address */}
       <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}` }}>
         <div style={{ fontSize: 11, color: C.textMuted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>Address</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: C.primary, fontFamily: "'Exo 2',monospace", wordBreak: 'break-all', flex: 1 }}>
-            {addr}
-          </div>
-          <button
-            onClick={copyAddr}
-            style={{ background: 'none', border: 'none', color: copied ? C.green : C.textMuted, cursor: 'pointer', display: 'flex', padding: 4, flexShrink: 0 }}
-            aria-label="Copy address"
-          >
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.primary, fontFamily: "'Exo 2',monospace", wordBreak: 'break-all', flex: 1 }}>{addr}</div>
+          <button onClick={copyAddr} style={{ background: 'none', border: 'none', color: copied ? C.green : C.textMuted, cursor: 'pointer', display: 'flex', padding: 4, flexShrink: 0 }} aria-label="Copy address">
             {copied ? <Check size={14} /> : <Copy size={14} />}
           </button>
         </div>
       </div>
 
-      {/* Token list */}
       <div style={{ padding: '12px 20px' }}>
         <div style={{ fontSize: 11, color: C.textMuted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>Tokens</div>
-
-        {isPending && (
-          <div style={{ fontSize: 13, color: C.textMuted, padding: '8px 0' }}>Loading balances…</div>
-        )}
-
-        {balances && balances.length === 0 && (
-          <div style={{ fontSize: 13, color: C.textMuted, padding: '8px 0' }}>No tokens found</div>
-        )}
-
+        {isPending && <div style={{ fontSize: 13, color: C.textMuted, padding: '8px 0' }}>Loading balances…</div>}
+        {balances && balances.length === 0 && <div style={{ fontSize: 13, color: C.textMuted, padding: '8px 0' }}>No tokens found</div>}
         {balances && balances.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 240, overflowY: 'auto' }}>
             {balances.map((b) => (
-              <div
-                key={b.coinType}
-                style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '10px 14px', borderRadius: 12,
-                  border: `1px solid ${C.border}`, background: C.bg,
-                }}
-              >
+              <div key={b.coinType} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderRadius: 12, border: `1px solid ${C.border}`, background: C.bg }}>
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: C.heading }}>{shortCoinType(b.coinType)}</div>
-                  <div style={{ fontSize: 11, color: C.textMuted, fontFamily: "'Exo 2',monospace", marginTop: 2 }}>
-                    {shortAddr(b.coinType.split('::')[0] ?? '')}
-                  </div>
+                  <div style={{ fontSize: 11, color: C.textMuted, fontFamily: "'Exo 2',monospace", marginTop: 2 }}>{shortAddr(b.coinType.split('::')[0] ?? '')}</div>
                 </div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: C.text, fontFamily: "'Exo 2',sans-serif" }}>
-                  {formatBalance(b.totalBalance)}
-                </div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: C.text, fontFamily: "'Exo 2',sans-serif" }}>{formatBalance(b.totalBalance)}</div>
               </div>
             ))}
           </div>
         )}
       </div>
 
-      {/* Disconnect */}
       <div style={{ padding: '12px 20px', borderTop: `1px solid ${C.border}` }}>
-        <button
-          onClick={() => { disconnect(); onClose() }}
-          style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-            width: '100%', padding: '10px 0', borderRadius: 10,
-            border: `1px solid rgba(239,68,68,0.3)`, background: 'rgba(239,68,68,0.08)',
-            color: '#EF4444', fontSize: 13, fontWeight: 600,
-            cursor: 'pointer', fontFamily: "'Exo 2',sans-serif",
-          }}
-        >
-          <LogOut size={14} />
-          Disconnect
+        <button onClick={() => { disconnect(); onClose() }} style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+          width: '100%', padding: '10px 0', borderRadius: 10,
+          border: `1px solid rgba(239,68,68,0.3)`, background: 'rgba(239,68,68,0.08)',
+          color: '#EF4444', fontSize: 13, fontWeight: 600,
+          cursor: 'pointer', fontFamily: "'Exo 2',sans-serif",
+        }}>
+          <LogOut size={14} /> Disconnect
         </button>
       </div>
     </div>
   )
 }
 
-/* ─── Wallet Button (connected state — uses SuiNS) ─── */
+/* ─── Wallet Button (connected state) ─── */
 const WalletButtonConnected = forwardRef<
   HTMLDivElement,
   { address: string; panelOpen: boolean; setPanelOpen: (v: boolean) => void }
@@ -244,22 +211,18 @@ const WalletButtonConnected = forwardRef<
 
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button
-        onClick={() => setPanelOpen(!panelOpen)}
-        style={{
-          display: 'inline-flex', alignItems: 'center', gap: 8,
-          padding: '8px 16px', borderRadius: 10,
-          border: `1px solid ${C.border}`, background: C.surface,
-          fontSize: 13, fontWeight: 600, color: suiNSName ? C.accent : C.primary,
-          cursor: 'pointer', fontFamily: "'Exo 2',sans-serif",
-          maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }}
-      >
+      <button onClick={() => setPanelOpen(!panelOpen)} style={{
+        display: 'inline-flex', alignItems: 'center', gap: 8,
+        padding: '8px 16px', borderRadius: 10,
+        border: `1px solid ${C.border}`, background: C.surface,
+        fontSize: 13, fontWeight: 600, color: suiNSName ? C.accent : C.primary,
+        cursor: 'pointer', fontFamily: "'Exo 2',sans-serif",
+        maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      }}>
         {suiNSName ? <AtSign size={14} /> : <Wallet size={14} />}
         {displayName}
         <ChevronDown size={14} style={{ opacity: 0.5, flexShrink: 0 }} />
       </button>
-
       {panelOpen && <WalletPanel onClose={() => setPanelOpen(false)} />}
     </div>
   )
@@ -281,14 +244,7 @@ function WalletButton() {
   }, [])
 
   if (currentAccount) {
-    return (
-      <WalletButtonConnected
-        address={currentAccount.address}
-        panelOpen={panelOpen}
-        setPanelOpen={setPanelOpen}
-        ref={ref}
-      />
-    )
+    return <WalletButtonConnected address={currentAccount.address} panelOpen={panelOpen} setPanelOpen={setPanelOpen} ref={ref} />
   }
 
   return (
@@ -296,40 +252,72 @@ function WalletButton() {
       open={connectOpen}
       onOpenChange={(isOpen) => setConnectOpen(isOpen)}
       trigger={
-        <button
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 8,
-            padding: '8px 20px', borderRadius: 10,
-            background: C.accent, color: '#000',
-            fontSize: 14, fontWeight: 700, border: 'none',
-            cursor: 'pointer', fontFamily: "'Exo 2',sans-serif",
-          }}
-        >
-          <Wallet size={16} />
-          Connect Wallet
+        <button style={{
+          display: 'inline-flex', alignItems: 'center', gap: 8,
+          padding: '8px 20px', borderRadius: 10,
+          background: C.accent, color: '#000',
+          fontSize: 14, fontWeight: 700, border: 'none',
+          cursor: 'pointer', fontFamily: "'Exo 2',sans-serif",
+        }}>
+          <Wallet size={16} /> Connect Wallet
         </button>
       }
     />
   )
 }
 
+/* ─── Tab definitions ─── */
+const TABS = [
+  { key: 'data-asset', label: 'Data Asset', icon: Database },
+  { key: 'create-poll', label: 'Tạo Poll', icon: Vote },
+] as const
+
+type TabKey = (typeof TABS)[number]['key']
+
 /* ─── App Navbar ─── */
-function AppNavbar() {
+function AppNavbar({ activeTab, setActiveTab }: { activeTab: TabKey; setActiveTab: (t: TabKey) => void }) {
   return (
     <nav style={{ position: 'fixed', top: 16, left: 16, right: 16, zIndex: 50, maxWidth: 1152, margin: '0 auto' }}>
-      <div
-        style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '12px 24px', borderRadius: 16,
-          border: `1px solid ${C.border}`, background: 'rgba(10,14,39,0.85)', backdropFilter: 'blur(12px)',
-        }}
-      >
-        <a href="index.html" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: C.heading, fontFamily: "'Orbitron',sans-serif", fontWeight: 700, fontSize: 18 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 10, background: `linear-gradient(135deg,${C.primary},${C.primaryDark})`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Shield size={18} color="#fff" />
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '12px 24px', borderRadius: 16,
+        border: `1px solid ${C.border}`, background: 'rgba(10,14,39,0.85)', backdropFilter: 'blur(12px)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
+          <a href="index.html" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: C.heading, fontFamily: "'Orbitron',sans-serif", fontWeight: 700, fontSize: 18 }}>
+            <div style={{ width: 36, height: 36, borderRadius: 10, background: `linear-gradient(135deg,${C.primary},${C.primaryDark})`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Shield size={18} color="#fff" />
+            </div>
+            OrcaVote
+          </a>
+
+          {/* Tabs in navbar */}
+          <div style={{ display: 'flex', gap: 4, background: C.bg, borderRadius: 10, padding: 3 }}>
+            {TABS.map((tab) => {
+              const Icon = tab.icon
+              const active = activeTab === tab.key
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    padding: '6px 14px', borderRadius: 8,
+                    border: 'none',
+                    background: active ? C.surface : 'transparent',
+                    color: active ? C.heading : C.textMuted,
+                    fontSize: 13, fontWeight: active ? 700 : 500,
+                    cursor: 'pointer', fontFamily: "'Exo 2',sans-serif",
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  <Icon size={14} />
+                  {tab.label}
+                </button>
+              )
+            })}
           </div>
-          OrcaVote
-        </a>
+        </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <NetworkSelector />
@@ -341,31 +329,15 @@ function AppNavbar() {
 }
 
 /* ─── Dashboard ─── */
-function Dashboard() {
+function Dashboard({ activeTab }: { activeTab: TabKey }) {
   const currentAccount = useCurrentAccount()
 
   return (
     <div style={{ maxWidth: 800, margin: '0 auto', padding: '0 24px' }}>
       {currentAccount ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-          {/* Welcome card */}
-          <div style={{ padding: 24, borderRadius: 16, border: `1px solid ${C.border}`, background: C.surface }}>
-            <h2 style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 18, fontWeight: 600, color: C.heading, margin: '0 0 12px' }}>
-              Welcome, Voter
-            </h2>
-            <div style={{ padding: 12, borderRadius: 10, background: C.bg, border: `1px solid ${C.border}`, marginBottom: 12 }}>
-              <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 1 }}>Connected Address</div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: C.primary, fontFamily: "'Exo 2',monospace", wordBreak: 'break-all' }}>
-                {currentAccount.address}
-              </div>
-            </div>
-            <p style={{ fontSize: 13, color: C.textMuted, lineHeight: 1.7, margin: 0 }}>
-              Your wallet is connected. Use the ZK Merkle builder below to generate identity blobs for anonymous voting.
-            </p>
-          </div>
-
-          {/* ZK Merkle Panel */}
-          <ZkMerklePanel />
+          {activeTab === 'data-asset' && <DataAssetPanel />}
+          {activeTab === 'create-poll' && <ZkMerklePanel />}
         </div>
       ) : (
         <div style={{ textAlign: 'center' }}>
@@ -387,11 +359,13 @@ function Dashboard() {
 
 /* ─── OrcaVote App ─── */
 export default function OrcaVoteApp() {
+  const [activeTab, setActiveTab] = useState<TabKey>('data-asset')
+
   return (
     <div style={{ minHeight: '100vh', overflowX: 'hidden' }}>
-      <AppNavbar />
+      <AppNavbar activeTab={activeTab} setActiveTab={setActiveTab} />
       <main style={{ paddingTop: 120, paddingBottom: 80 }}>
-        <Dashboard />
+        <Dashboard activeTab={activeTab} />
       </main>
     </div>
   )
