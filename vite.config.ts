@@ -22,6 +22,27 @@ export default defineConfig({
         main: path.resolve(__dirname, 'index.html'),
         orcavote: path.resolve(__dirname, 'orcavote.html'),
       },
+      external: ['gsap', 'motion'],
+      preserveEntrySignatures: 'exports-only',
+      output: {
+        globals: {
+          gsap: 'gsap',
+          motion: 'Motion',
+        },
+        // Keep plugin entry points at predictable paths (no hash)
+        entryFileNames(chunk) {
+          if (chunk.name.startsWith('plugins/')) {
+            return `assets/${chunk.name}.js`
+          }
+          return 'assets/[name]-[hash].js'
+        },
+        manualChunks(id) {
+          // Heavy @mysten/* deps → dedicated chunk, loaded only when a Sui plugin is used
+          if (id.includes('node_modules/@mysten/')) {
+            return 'vendor-mysten'
+          }
+        },
+      },
     },
   },
 })
