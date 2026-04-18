@@ -17,7 +17,7 @@ import {
 import { C } from './theme'
 import { initZkMerkleWasm, getWasmStatus } from './zk-merkle'
 import type { MerkleResult } from './zk-merkle'
-import { encryptAndUpload, encryptAndUploadAll, AGGREGATORS } from './seal-walrus'
+import { encryptAndUpload, encryptAndUploadAll, uploadToWalrus, AGGREGATORS } from './seal-walrus'
 import type { UploadResult, NetworkKey } from './seal-walrus'
 
 /* ─── styles ─── */
@@ -84,6 +84,10 @@ export default function ZkMerklePanel() {
   const [uploadAllProgress, setUploadAllProgress] = useState<{ done: number; total: number } | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
 
+  // Tree upload state
+  const [treeUploadResult, setTreeUploadResult] = useState<{ blobId: string; walrusUrl: string } | null>(null)
+  const [treeUploading, setTreeUploading] = useState(false)
+
   const network = (ctx.network ?? 'testnet') as NetworkKey
 
   // Pre-load WASM
@@ -107,6 +111,7 @@ export default function ZkMerklePanel() {
     setVerifyResults({})
     setUploadResults({})
     setUploadError(null)
+    setTreeUploadResult(null)
     try {
       const wasm = await initZkMerkleWasm()
       const addrs = addresses.split(/[\n,]+/).map((a) => a.trim()).filter((a) => a.startsWith('0x') && a.length > 10)
@@ -193,6 +198,22 @@ export default function ZkMerklePanel() {
   const isUploading = uploadingIdx !== null || uploadAllProgress !== null
   const allUploaded = result ? result.identities.every((_, i) => i in uploadResults) : false
 
+  // Upload full tree JSON to Walrus (no Seal — public data)
+  async function handleUploadTree() {
+    if (!result) return
+    setTreeUploading(true)
+    setUploadError(null)
+    try {
+      const json = new TextEncoder().encode(JSON.stringify(result))
+      const { blobId, walrusUrl } = await uploadToWalrus(json, network)
+      setTreeUploadResult({ blobId, walrusUrl })
+    } catch (e: unknown) {
+      setUploadError(`Tree upload: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setTreeUploading(false)
+    }
+  }
+
   return (
     <div>
       {/* Header */}
@@ -267,9 +288,37 @@ export default function ZkMerklePanel() {
                 </div>
               ))}
             </div>
-            <button style={{ ...btnSm, marginTop: 16, width: '100%', justifyContent: 'center' }} onClick={downloadAll}>
-              <Download size={14} /> Download Full Tree JSON
-            </button>
+
+            {/* Tree upload result */}
+            {treeUploadResult && (
+              <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, background: 'rgba(16,185,129,0.05)', border: '1px solid rgba(16,185,129,0.15)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <span style={{ fontSize: 11, color: C.textMuted }}>Walrus Blob ID</span>
+                  <code style={{ fontSize: 11, color: C.green, fontFamily: "'Exo 2',monospace" }}>
+                    {treeUploadResult.blobId.slice(0, 16)}…{treeUploadResult.blobId.slice(-6)}
+                  </code>
+                </div>
+                <a href={treeUploadResult.walrusUrl} target="_blank" rel="noopener noreferrer"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: C.green, textDecoration: 'none', marginTop: 4 }}>
+                  <ExternalLink size={12} /> View Full Tree on Walrus
+                </a>
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 16 }}>
+              <button style={{ ...btnSm, justifyContent: 'center' }} onClick={downloadAll}>
+                <Download size={14} /> Download JSON
+              </button>
+              <button
+                style={{ ...btnUpload, justifyContent: 'center', opacity: treeUploading || treeUploadResult ? 0.6 : 1 }}
+                onClick={handleUploadTree}
+                disabled={treeUploading || !!treeUploadResult}
+              >
+                {treeUploading ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : treeUploadResult ? <CheckCircle size={14} /> : <CloudUpload size={14} />}
+                {treeUploading ? 'Uploading…' : treeUploadResult ? 'Uploaded' : 'Upload to Walrus'}
+              </button>
+            </div>
           </div>
 
           {/* Identity blobs */}
