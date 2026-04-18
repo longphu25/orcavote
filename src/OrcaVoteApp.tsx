@@ -19,6 +19,7 @@ import {
   AtSign,
 } from 'lucide-react'
 import { C } from './theme'
+import ZkMerklePanel from './ZkMerklePanel'
 
 /* ─── helpers ─── */
 function formatBalance(raw: string, decimals = 9): string {
@@ -346,20 +347,25 @@ function Dashboard() {
   return (
     <div style={{ maxWidth: 800, margin: '0 auto', padding: '0 24px' }}>
       {currentAccount ? (
-        <div style={{ padding: 32, borderRadius: 20, border: `1px solid ${C.border}`, background: C.surface }}>
-          <h2 style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 20, fontWeight: 600, color: C.heading, margin: '0 0 16px' }}>
-            Welcome, Voter
-          </h2>
-          <div style={{ padding: 16, borderRadius: 12, background: C.bg, border: `1px solid ${C.border}`, marginBottom: 16 }}>
-            <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 1 }}>Connected Address</div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: C.primary, fontFamily: "'Exo 2',monospace", wordBreak: 'break-all' }}>
-              {currentAccount.address}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+          {/* Welcome card */}
+          <div style={{ padding: 24, borderRadius: 16, border: `1px solid ${C.border}`, background: C.surface }}>
+            <h2 style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 18, fontWeight: 600, color: C.heading, margin: '0 0 12px' }}>
+              Welcome, Voter
+            </h2>
+            <div style={{ padding: 12, borderRadius: 10, background: C.bg, border: `1px solid ${C.border}`, marginBottom: 12 }}>
+              <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 1 }}>Connected Address</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.primary, fontFamily: "'Exo 2',monospace", wordBreak: 'break-all' }}>
+                {currentAccount.address}
+              </div>
             </div>
+            <p style={{ fontSize: 13, color: C.textMuted, lineHeight: 1.7, margin: 0 }}>
+              Your wallet is connected. Use the ZK Merkle builder below to generate identity blobs for anonymous voting.
+            </p>
           </div>
-          <p style={{ fontSize: 14, color: C.textMuted, lineHeight: 1.7 }}>
-            Your wallet is connected. You can now participate in governance votes,
-            request access to encrypted datasets, and manage your data assets.
-          </p>
+
+          {/* ZK Merkle Panel */}
+          <ZkMerklePanel />
         </div>
       ) : (
         <div style={{ textAlign: 'center' }}>

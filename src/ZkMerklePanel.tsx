@@ -1,0 +1,347 @@
+import { useState, useCallback, useRef, useEffect } from 'react'
+import { useCurrentAccount } from '@mysten/dapp-kit'
+import {
+  Shield,
+  TreePine,
+  Download,
+  CheckCircle,
+  XCircle,
+  Loader2,
+  FileKey,
+  Hash,
+} from 'lucide-react'
+import { C } from './theme'
+import { initZkMerkleWasm, getWasmStatus } from './zk-merkle'
+import type { MerkleResult } from './zk-merkle'
+
+/* ─── styles ─── */
+const card = {
+  padding: 24,
+  borderRadius: 16,
+  border: `1px solid ${C.border}`,
+  background: C.surface,
+  marginBottom: 20,
+} as const
+
+const label = {
+  fontSize: 11,
+  color: C.textMuted,
+  textTransform: 'uppercase' as const,
+  letterSpacing: 1,
+  marginBottom: 6,
+  display: 'block',
+}
+
+const input = {
+  width: '100%',
+  padding: '10px 14px',
+  borderRadius: 10,
+  border: `1px solid ${C.border}`,
+  background: C.bg,
+  color: C.text,
+  fontSize: 14,
+  fontFamily: "'Exo 2',sans-serif",
+  outline: 'none',
+} as const
+
+const textarea = {
+  ...input,
+  resize: 'vertical' as const,
+  minHeight: 80,
+  fontFamily: "'Exo 2',monospace",
+} as const
+
+const btnPrimary = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 8,
+  padding: '10px 24px',
+  borderRadius: 10,
+  background: C.accent,
+  color: '#000',
+  fontSize: 14,
+  fontWeight: 700,
+  border: 'none',
+  cursor: 'pointer',
+  fontFamily: "'Exo 2',sans-serif",
+  width: '100%',
+  justifyContent: 'center',
+} as const
+
+const btnSm = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 4,
+  padding: '6px 12px',
+  borderRadius: 8,
+  border: `1px solid ${C.border}`,
+  background: 'transparent',
+  color: C.text,
+  fontSize: 12,
+  fontWeight: 600,
+  cursor: 'pointer',
+  fontFamily: "'Exo 2',sans-serif",
+} as const
+
+/* ─── Component ─── */
+export default function ZkMerklePanel() {
+  const currentAccount = useCurrentAccount()
+  const [addresses, setAddresses] = useState('')
+  const [pollId, setPollId] = useState('')
+  const [pollTitle, setPollTitle] = useState('')
+  const [signal, setSignal] = useState('vote')
+  const [result, setResult] = useState<MerkleResult | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [wasmReady, setWasmReady] = useState(false)
+  const [verifyResults, setVerifyResults] = useState<Record<number, boolean>>({})
+  const dlRef = useRef<HTMLAnchorElement>(null)
+
+  // Pre-load WASM
+  useEffect(() => {
+    initZkMerkleWasm()
+      .then(() => setWasmReady(true))
+      .catch(() => {})
+  }, [])
+
+  // Auto-fill connected address on first mount
+  const addressRef = useRef(false)
+  useEffect(() => {
+    if (currentAccount && !addressRef.current) {
+      addressRef.current = true
+      // Use a microtask to avoid synchronous setState in effect
+      queueMicrotask(() => setAddresses(currentAccount.address))
+    }
+  }, [currentAccount])
+
+  const buildTree = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    setResult(null)
+    setVerifyResults({})
+    try {
+      const wasm = await initZkMerkleWasm()
+      const addrs = addresses
+        .split(/[\n,]+/)
+        .map((a) => a.trim())
+        .filter((a) => a.startsWith('0x') && a.length > 10)
+      if (addrs.length === 0) throw new Error('Enter at least 1 valid address (0x...)')
+      const id = pollId || `poll_${Date.now()}`
+      const title = pollTitle || 'Untitled Poll'
+      const r = wasm.build_merkle_tree(addrs, id, title, signal || 'vote')
+      setResult(r)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [addresses, pollId, pollTitle, signal])
+
+  function downloadIdentity(idx: number) {
+    if (!result) return
+    const blob = result.identities[idx]
+    const json = JSON.stringify(blob, null, 2)
+    const file = new Blob([json], { type: 'application/json' })
+    const url = URL.createObjectURL(file)
+    if (dlRef.current) {
+      dlRef.current.href = url
+      dlRef.current.download = `identity_${blob.address.slice(0, 8)}.json`
+      dlRef.current.click()
+      URL.revokeObjectURL(url)
+    }
+  }
+
+  function downloadAll() {
+    if (!result) return
+    const json = JSON.stringify(result, null, 2)
+    const file = new Blob([json], { type: 'application/json' })
+    const url = URL.createObjectURL(file)
+    if (dlRef.current) {
+      dlRef.current.href = url
+      dlRef.current.download = `merkle_${result.root.slice(0, 8)}.json`
+      dlRef.current.click()
+      URL.revokeObjectURL(url)
+    }
+  }
+
+  async function verifyIdentity(idx: number) {
+    if (!result) return
+    try {
+      const wasm = await initZkMerkleWasm()
+      const id = result.identities[idx]
+      const ok = wasm.verify_proof(id.identity_commitment, id.merkle_path, id.merkle_root)
+      setVerifyResults((prev) => ({ ...prev, [idx]: ok }))
+    } catch {
+      setVerifyResults((prev) => ({ ...prev, [idx]: false }))
+    }
+  }
+
+  const { status: ws } = getWasmStatus()
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 40, height: 40, borderRadius: 12, background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <TreePine size={20} color={C.primary} />
+          </div>
+          <div>
+            <h2 style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 18, fontWeight: 600, color: C.heading, margin: 0 }}>
+              ZK Merkle Identity
+            </h2>
+            <p style={{ fontSize: 12, color: C.textMuted, margin: 0 }}>Build Poseidon Merkle tree from wallet addresses</p>
+          </div>
+        </div>
+        <span style={{
+          padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700,
+          background: wasmReady ? 'rgba(16,185,129,0.1)' : 'rgba(245,158,11,0.1)',
+          color: wasmReady ? C.green : C.accent,
+          border: `1px solid ${wasmReady ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.2)'}`,
+        }}>
+          {wasmReady ? 'WASM Ready' : ws === 'loading' ? 'Loading…' : 'WASM Error'}
+        </span>
+      </div>
+
+      {error && (
+        <div style={{ ...card, borderColor: 'rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.05)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <XCircle size={16} color="#EF4444" />
+          <span style={{ fontSize: 13, color: '#EF4444' }}>{error}</span>
+        </div>
+      )}
+
+      {/* Input form */}
+      <div style={card}>
+        <div style={{ marginBottom: 16 }}>
+          <span style={label}>Wallet Addresses (one per line or comma-separated)</span>
+          <textarea
+            style={textarea}
+            rows={4}
+            placeholder={"0xde03f5aa56efbf3765da3b92425e1403f0820f574933073c13c47070fd56128b\n0xabc123..."}
+            value={addresses}
+            onChange={(e) => setAddresses(e.target.value)}
+          />
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+          <div>
+            <span style={label}>Poll ID</span>
+            <input style={input} placeholder="poll_001" value={pollId} onChange={(e) => setPollId(e.target.value)} />
+          </div>
+          <div>
+            <span style={label}>Title</span>
+            <input style={input} placeholder="DAO Vote #1" value={pollTitle} onChange={(e) => setPollTitle(e.target.value)} />
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 20 }}>
+          <span style={label}>Signal (vote value / action)</span>
+          <input style={input} placeholder="vote" value={signal} onChange={(e) => setSignal(e.target.value)} />
+        </div>
+
+        <button
+          style={{ ...btnPrimary, opacity: loading || !addresses.trim() ? 0.5 : 1 }}
+          onClick={buildTree}
+          disabled={loading || !addresses.trim()}
+        >
+          {loading ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <TreePine size={16} />}
+          {loading ? 'Building…' : 'Build Merkle Tree (WASM)'}
+        </button>
+      </div>
+
+      {/* Result */}
+      {result && (
+        <>
+          {/* Tree info */}
+          <div style={card}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+              <Hash size={16} color={C.primary} />
+              <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 14, fontWeight: 600, color: C.heading }}>
+                Merkle Tree (Poseidon BN254)
+              </span>
+            </div>
+
+            <div style={{ display: 'grid', gap: 8 }}>
+              {[
+                ['Root', `${result.root.slice(0, 16)}…${result.root.slice(-8)}`],
+                ['Leaves', String(result.leaf_count)],
+                ['Depth', String(result.tree_depth)],
+                ['Hash', 'Poseidon BN254 (Circom)'],
+                ['Verifier', 'sui::groth16::bn254()'],
+              ].map(([k, v]) => (
+                <div key={k} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', borderRadius: 8, background: C.bg }}>
+                  <span style={{ fontSize: 13, color: C.textMuted }}>{k}</span>
+                  <code style={{ fontSize: 13, color: C.primary, fontFamily: "'Exo 2',monospace" }}>{v}</code>
+                </div>
+              ))}
+            </div>
+
+            <button style={{ ...btnSm, marginTop: 16, width: '100%', justifyContent: 'center' }} onClick={downloadAll}>
+              <Download size={14} /> Download Full Tree JSON
+            </button>
+          </div>
+
+          {/* Identity blobs */}
+          <div style={card}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+              <FileKey size={16} color={C.accent} />
+              <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 14, fontWeight: 600, color: C.heading }}>
+                Identity Blobs ({result.identities.length})
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {result.identities.map((id, i) => (
+                <div
+                  key={i}
+                  style={{
+                    padding: 14, borderRadius: 12,
+                    border: `1px solid ${C.border}`, background: C.bg,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: C.textMuted }}>#{i}</span>
+                      <code style={{ fontSize: 12, color: C.primary, fontFamily: "'Exo 2',monospace" }}>
+                        {id.address.slice(0, 10)}…{id.address.slice(-6)}
+                      </code>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 16, marginBottom: 10, fontSize: 11, color: C.textMuted }}>
+                    <span>nullifier: {id.identity_nullifier.slice(0, 8)}…</span>
+                    <span>commit: {id.identity_commitment.slice(0, 8)}…</span>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <button style={btnSm} onClick={() => downloadIdentity(i)}>
+                      <Download size={12} /> Download
+                    </button>
+                    <button
+                      style={{ ...btnSm, borderColor: 'rgba(59,130,246,0.3)', color: C.primary }}
+                      onClick={() => verifyIdentity(i)}
+                    >
+                      <Shield size={12} /> Verify
+                    </button>
+                    {i in verifyResults && (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: verifyResults[i] ? C.green : '#EF4444' }}>
+                        {verifyResults[i] ? <CheckCircle size={14} /> : <XCircle size={14} />}
+                        {verifyResults[i] ? 'Valid' : 'Invalid'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ fontSize: 11, color: C.textMuted, textAlign: 'center', padding: '8px 0' }}>
+            Identity blobs are secrets — do not share publicly
+          </div>
+        </>
+      )}
+
+      <a ref={dlRef} style={{ display: 'none' }} />
+    </div>
+  )
+}
