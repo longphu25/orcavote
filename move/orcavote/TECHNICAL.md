@@ -10,7 +10,7 @@
 6. [Error codes](#6-error-codes)
 7. [Events](#7-events)
 8. [Seal integration](#8-seal-integration)
-9. [ZK proof format](#9-zk-proof-format)
+9. [ZK Circuit & vk_bytes](#9-zk-circuit--vk_bytes)
 10. [Hướng dẫn deploy](#10-hướng-dẫn-deploy)
 11. [Client integration](#11-client-integration)
 
@@ -80,7 +80,7 @@ Shared singleton, tạo lúc publish package.
 
 ### 3.2 AdminCap
 
-Owned object, transfer cho deployer lúc init. Ai giữ AdminCap mới gọi được các hàm admin.
+Owned object, transfer cho deployer lúc init. Hiện tại AdminCap không bắt buộc cho poll creation — ai cũng có thể tạo poll. Người tạo poll trở thành admin của poll đó (lưu trong `poll.admin`). AdminCap được giữ lại cho các global admin operations trong tương lai.
 
 ### 3.3 DataAsset
 
@@ -126,14 +126,14 @@ Lookup key: `VoterRefKey { poll_id, voter }`.
 
 ## 4. Luồng hoạt động
 
-### 4.1 Admin flow
+### 4.1 Poll creator flow (permissionless)
 
 ```
 1. Deploy package
    → init() tạo Registry (shared) + AdminCap (owned by deployer)
 
-2. Register dataset
-   → data_asset::register(registry, cap, walrus_blob_id, seal_identity, name)
+2. Register dataset (permissionless)
+   → data_asset::register(registry, walrus_blob_id, seal_identity, name)
    → emit DataAssetRegistered
 
 3. Off-chain: gen identities + Merkle tree (WASM)
@@ -142,19 +142,20 @@ Lookup key: `VoterRefKey { poll_id, voter }`.
 4. Off-chain: encrypt identity.json bằng Seal, upload Walrus
    → identity_blob_id, seal_identity per voter
 
-5. Create poll
-   → governance::create_poll(registry, cap, data_blob_id, data_seal_identity,
+5. Create poll (permissionless — caller trở thành poll admin)
+   → governance::create_poll(registry, data_blob_id, data_seal_identity,
                               council_root, threshold, voting_end, vk_bytes, title)
+   → vk_bytes: load từ public/zk-circuit/vk_bytes.bin (cố định, dùng chung)
    → emit PollCreated
    → Poll status = Setup
 
-6. Register voters
-   → governance::register_voter(registry, cap, poll_id, voter, walrus_blob_id, seal_identity)
+6. Register voters (chỉ poll admin)
+   → governance::register_voter(registry, poll_id, voter, walrus_blob_id, seal_identity)
    → hoặc governance::register_voters(...) cho batch
    → emit VoterRegistered per voter
 
-7. Start voting
-   → governance::start_voting(registry, cap, poll_id)
+7. Start voting (chỉ poll admin)
+   → governance::start_voting(registry, poll_id)
    → Poll status = Voting
 ```
 
@@ -180,7 +181,7 @@ Lookup key: `VoterRefKey { poll_id, voter }`.
 ```
 1. Sau deadline:
    → governance::finalize(registry, poll_id, clock)    # permissionless
-   → hoặc governance::admin_finalize(registry, cap, poll_id)  # admin, bất kỳ lúc nào
+   → hoặc governance::admin_finalize(registry, poll_id)  # poll admin, bất kỳ lúc nào
 
 2. Kết quả:
    → yes_count >= threshold → status = Approved (2)
@@ -249,7 +250,7 @@ Module trung tâm, sở hữu tất cả struct definitions.
 
 | Function | Requires | Mô tả |
 |----------|----------|-------|
-| `register(registry, cap, walrus_blob_id, seal_identity, name, ctx)` | AdminCap | Đăng ký dataset mới |
+| `register(registry, walrus_blob_id, seal_identity, name, ctx)` | — | Đăng ký dataset mới (permissionless) |
 | `count(registry): u64` | — | Số lượng data assets |
 | `id_at(registry, index): ID` | — | Asset ID theo index |
 | `get(registry, asset_id): (blob_id, seal_identity, owner, name)` | — | Chi tiết asset |
@@ -258,12 +259,14 @@ Module trung tâm, sở hữu tất cả struct definitions.
 
 | Function | Requires | Mô tả |
 |----------|----------|-------|
-| `create_poll(registry, cap, ...)` | AdminCap | Tạo poll mới (Setup) |
-| `register_voter(registry, cap, poll_id, voter, blob_id, seal_id)` | AdminCap | Đăng ký 1 voter |
-| `register_voters(registry, cap, poll_id, voters, blob_ids, seal_ids)` | AdminCap | Batch đăng ký |
-| `start_voting(registry, cap, poll_id)` | AdminCap | Setup → Voting |
+| `create_poll(registry, ...)` | — | Tạo poll mới (permissionless, caller = poll admin) |
+| `register_voter(registry, poll_id, voter, blob_id, seal_id, ctx)` | Poll admin | Đăng ký 1 voter |
+| `register_voters(registry, poll_id, voters, blob_ids, seal_ids, ctx)` | Poll admin | Batch đăng ký |
+| `start_voting(registry, poll_id, ctx)` | Poll admin | Setup → Voting |
 | `finalize(registry, poll_id, clock)` | — | Permissionless finalize (sau deadline) |
-| `admin_finalize(registry, cap, poll_id)` | AdminCap | Force finalize (bất kỳ lúc nào) |
+| `admin_finalize(registry, poll_id, ctx)` | Poll admin | Force finalize (bất kỳ lúc nào) |
+
+> **Poll admin** = `ctx.sender() == poll.admin` (người tạo poll). Không cần AdminCap.
 
 **Query functions:**
 
@@ -327,6 +330,7 @@ Cả hai đều là `entry` functions — chỉ gọi được qua transaction, 
 | 11 | `EVoterAlreadyRegistered` | registry | Voter đã đăng ký cho poll này |
 | 12 | `EInvalidChoice` | zk_vote | Choice không phải 0 hoặc 1 |
 | 13 | `EPollNotFound` | registry | Poll ID không tồn tại |
+| 14 | `ENotPollAdmin` | governance | Caller không phải poll admin |
 
 ---
 
@@ -418,51 +422,251 @@ function buildSealId(registryId: string, pollId: string): Uint8Array {
 
 ---
 
-## 9. ZK proof format
+## 9. ZK Circuit & vk_bytes
 
-### 9.1 Circuit (Semaphore-style)
+### 9.1 Circuit overview
 
-**Private inputs:**
-- `identity_secret` — voter's secret (leaf of Merkle tree)
-- `merkle_path` — siblings + indices
+File: `circuits/orcavote.circom`
 
-**Public inputs (3 × 32 bytes LE, concatenated = 96 bytes):**
+Circuit kiểu Semaphore trên BN254, chứng minh 3 điều:
+1. Voter biết `identity_secret` là leaf trong Merkle tree (membership)
+2. `nullifier_hash` được derive deterministic từ secret + poll context (chống double-vote)
+3. `signal_hash` commit vào vote choice (YES/NO)
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  OrcaVote Circuit (BN254, Groth16)                        │
+│                                                           │
+│  Private inputs:                                          │
+│    identity_secret          ← từ identity.json            │
+│    path_elements[20]        ← Merkle siblings             │
+│    path_indices[20]         ← Merkle directions (0/1)     │
+│                                                           │
+│  Public inputs:                                           │
+│    merkle_root              ← poll's council_root         │
+│    nullifier_hash           ← Poseidon(secret, ext_null)  │
+│    signal_hash              ← Poseidon(vote_choice)       │
+│    external_nullifier       ← Poseidon(poll_id)           │
+│                                                           │
+│  Constraints: 5314                                        │
+│  Tree depth: 20 (supports ~1M voters)                     │
+│  Hash: Poseidon (circomlib)                               │
+└──────────────────────────────────────────────────────────┘
+```
+
+### 9.2 Circuit logic
+
+```
+1. identity_commitment = Poseidon(identity_secret)
+2. Merkle inclusion: recompute root from commitment + path
+   → assert computed_root == merkle_root (public)
+3. nullifier = Poseidon(identity_secret, external_nullifier)
+   → assert computed_nullifier == nullifier_hash (public)
+4. signal_hash² (constraint to bind signal_hash to circuit)
+```
+
+### 9.3 Build pipeline
+
+Prerequisites: `circom` (Rust), `snarkjs` (npm)
+
+```bash
+cd circuits
+npm install          # circomlib
+make all             # compile → setup → export → copy to public/
+```
+
+Các bước chi tiết:
+
+| Step | Command | Output |
+|------|---------|--------|
+| Compile | `circom orcavote.circom --r1cs --wasm --sym` | `build/orcavote.r1cs` + `build/orcavote_js/orcavote.wasm` |
+| Download ptau | `curl ...powersOfTau28_hez_final_14.ptau` | `build/pot14_final.ptau` |
+| Groth16 setup | `snarkjs groth16 setup` | `build/orcavote_0000.zkey` |
+| Contribute | `snarkjs zkey contribute` | `build/orcavote_final.zkey` |
+| Export VK | `snarkjs zkey export verificationkey` | `build/verification_key.json` |
+| Export vk_bytes | `node export-vk-bytes.mjs` | `build/vk_bytes.bin` (384 bytes) |
+| Copy | `cp ... public/zk-circuit/` | Browser-ready artifacts |
+
+### 9.4 Browser artifacts
+
+Sau `make all`, thư mục `public/zk-circuit/` chứa:
+
+| File | Size | Mục đích |
+|------|------|----------|
+| `circuit.wasm` | ~2 MB | Witness calculator — snarkjs dùng trong browser để tính witness |
+| `circuit_final.zkey` | ~3.2 MB | Proving key — snarkjs dùng để sinh proof |
+| `verification_key.json` | ~3.5 KB | Human-readable VK (dùng cho debug/verify offline) |
+| `vk_bytes.bin` | 384 bytes | Arkworks-serialized VK cho `governance::create_poll` |
+
+Các file này là **static** — build 1 lần, ship cùng app, dùng chung cho tất cả polls.
+
+### 9.5 vk_bytes — Verifying Key cho Sui contract
+
+#### Định dạng
+
+`vk_bytes` là Arkworks canonical compressed serialization của Groth16 verifying key (BN254):
+
+```
+┌─────────────────────────────────────────────────────┐
+│  vk_bytes layout (384 bytes total)                   │
+│                                                      │
+│  [0..32]     alpha_g1      G1 compressed (32 bytes)  │
+│  [32..96]    beta_g2       G2 compressed (64 bytes)  │
+│  [96..160]   gamma_g2      G2 compressed (64 bytes)  │
+│  [160..224]  delta_g2      G2 compressed (64 bytes)  │
+│  [224..256]  IC[0]         G1 compressed (32 bytes)  │
+│  [256..288]  IC[1]         G1 compressed (32 bytes)  │
+│  [288..320]  IC[2]         G1 compressed (32 bytes)  │
+│  [320..352]  IC[3]         G1 compressed (32 bytes)  │
+│  [352..384]  IC[4]         G1 compressed (32 bytes)  │
+└─────────────────────────────────────────────────────┘
+
+IC points = nPublic + 1 = 4 + 1 = 5
+Total = 32 + 64×3 + 32×5 = 384 bytes
+```
+
+#### Encoding rules
+
+- **G1 compressed (32 bytes):** x-coordinate in little-endian. Bit 255 (MSB of byte 31) = 1 nếu y > P/2.
+- **G2 compressed (64 bytes):** x = (c0, c1) trong Fp2. c0 (32 bytes LE) + c1 (32 bytes LE). Bit 255 (MSB of byte 63) = 1 nếu y.c1 > P/2.
+- **P** = 21888242871839275222246405745257275088696311157297823662689037894645226208583 (BN254 base field)
+
+#### Cách sử dụng
+
+`vk_bytes` là tham số cố định khi tạo poll. Contract gọi:
+
+```move
+let curve = groth16::bn254();
+let pvk = groth16::prepare_verifying_key(&curve, &vk_bytes);
+```
+
+Và lưu 4 thành phần PVK trong Poll struct để dùng khi verify vote.
+
+#### Load trong TypeScript
+
+```typescript
+import { loadVkBytes } from './zk-prove'
+
+// Load vk_bytes (cached after first call)
+const vkBytes = await loadVkBytes()
+// → Uint8Array(384) — ready for create_poll
+
+// Trong transaction:
+tx.moveCall({
+  target: `${PACKAGE_ID}::governance::create_poll`,
+  arguments: [
+    tx.object(REGISTRY_ID),
+    tx.pure.vector('u8', dataBlobId),
+    tx.pure.vector('u8', dataSealIdentity),
+    tx.pure.vector('u8', councilRoot),
+    tx.pure.u64(threshold),
+    tx.pure.u64(votingEndMs),
+    tx.pure.vector('u8', Array.from(vkBytes)),  // ← vk_bytes
+    tx.pure.vector('u8', titleBytes),
+  ],
+})
+```
+
+#### Tạo lại vk_bytes
+
+Nếu cần rebuild (thay đổi circuit hoặc trusted setup):
+
+```bash
+cd circuits
+make clean
+make all    # compile → setup → export → copy
+```
+
+Script `export-vk-bytes.mjs` convert `verification_key.json` (snarkjs format) → `vk_bytes.bin` (Arkworks format).
+
+### 9.6 Proof format (submit_vote)
+
+#### Public inputs
+
+4 public inputs, mỗi input 32 bytes LE, concatenated = 128 bytes:
 
 | Offset | Field | Mô tả |
 |--------|-------|-------|
 | 0..32 | `merkle_root` | Poseidon Merkle root (BN254 scalar, LE) |
-| 32..64 | `nullifier_hash` | `Poseidon(identity_secret, poll_context)` |
-| 64..96 | `signal_hash` | `Poseidon(choice)` — YES=1, NO=0 |
+| 32..64 | `nullifier_hash` | `Poseidon(identity_secret, external_nullifier)` |
+| 64..96 | `signal_hash` | `Poseidon(vote_choice)` — YES=1, NO=0 |
+| 96..128 | `external_nullifier` | `Poseidon(poll_id)` — context cho nullifier |
 
-### 9.2 Proof format
+#### Proof points
 
-- **Curve:** BN254
-- **Proof system:** Groth16
-- **proof_bytes:** Arkworks canonical compressed serialization (A, B, C points)
-- **public_inputs_bytes:** 96 bytes (3 scalars × 32 bytes LE)
+Arkworks compressed: A (G1, 32 bytes) + B (G2, 64 bytes) + C (G1, 32 bytes) = 128 bytes.
 
-### 9.3 Verifying key
-
-Admin cung cấp `vk_bytes` khi tạo poll — đây là Arkworks canonical compressed serialization của verifying key. Contract gọi `groth16::prepare_verifying_key(bn254(), vk_bytes)` và lưu 4 thành phần PVK trong Poll.
-
-### 9.4 On-chain verification
+#### On-chain verification flow
 
 ```
-submit_vote:
-  1. Extract merkle_root từ public_inputs[0..32]
-  2. Assert merkle_root == poll.council_root
-  3. Reconstruct PVK từ poll fields
-  4. groth16::verify_groth16_proof(bn254(), pvk, public_inputs, proof)
-  5. Assert proof valid
-  6. Insert nullifier vào VecSet
-  7. Increment yes_count hoặc no_count
+submit_vote(registry, poll_id, proof_bytes, public_inputs_bytes, nullifier, choice, clock):
+  1. Assert poll.status == Voting
+  2. Assert clock <= voting_end
+  3. Assert choice == 0 or 1
+  4. Assert nullifier not in poll.nullifiers
+  5. Extract merkle_root from public_inputs[0..32]
+  6. Assert merkle_root == poll.council_root
+  7. Reconstruct PVK from poll fields
+  8. groth16::verify_groth16_proof(bn254(), pvk, public_inputs, proof)
+  9. Assert proof valid
+  10. Insert nullifier into VecSet
+  11. Increment yes_count or no_count
 ```
 
-### 9.5 Nullifier
+#### Nullifier
 
-- `nullifier` được pass riêng (ngoài `public_inputs_bytes`) để contract lưu vào `VecSet`.
-- `nullifier_hash` trong public inputs (bytes 32..64) là giá trị mà circuit commit.
-- Client phải đảm bảo `nullifier` param == `nullifier_hash` trong public inputs.
+- `nullifier` param (32 bytes) = `nullifier_hash` trong public inputs (bytes 32..64)
+- Contract lưu nullifier vào `VecSet<vector<u8>>` để chống double-vote
+- Client phải đảm bảo 2 giá trị này khớp nhau
+
+### 9.7 Browser proof generation
+
+File: `src/zk-prove.ts`
+
+```typescript
+import { generateProof, formatForSui, hashSignal, hashExternalNullifier } from './zk-prove'
+
+// 1. Prepare inputs from identity.json
+const signalHash = await hashSignal(1)              // 1 = YES
+const extNullifier = await hashExternalNullifier(pollId)
+
+// 2. Generate proof (snarkjs fullProve in browser)
+const result = await generateProof({
+  identity_secret: identity.identity_secret,         // from identity.json
+  path_elements: identity.merkle_path.map(n => n.hash),
+  path_indices: identity.merkle_path.map(n => parseInt(n.position)),
+  merkle_root: identity.groth16_inputs.merkle_root_decimal,
+  external_nullifier: extNullifier,
+  signal_hash: signalHash,
+})
+
+// 3. Format for Sui contract
+const { proofBytes, publicInputsBytes, nullifier } = formatForSui(result)
+
+// 4. Submit vote transaction
+tx.moveCall({
+  target: `${PACKAGE_ID}::zk_vote::submit_vote`,
+  arguments: [
+    tx.object(REGISTRY_ID),
+    tx.pure.id(pollId),
+    tx.pure.vector('u8', Array.from(proofBytes)),
+    tx.pure.vector('u8', Array.from(publicInputsBytes)),
+    tx.pure.vector('u8', Array.from(nullifier)),
+    tx.pure.u8(1),           // 1 = YES, 0 = NO
+    tx.object('0x6'),        // Clock
+  ],
+})
+```
+
+### 9.8 Trusted setup notes
+
+Hiện tại dùng **dev ceremony** (1 contribution). Cho production:
+
+1. Dùng powers of tau từ Hermez ceremony (đã có sẵn, trusted)
+2. Thêm nhiều contributions vào zkey (multi-party ceremony)
+3. Verify zkey: `snarkjs zkey verify build/orcavote.r1cs build/pot14_final.ptau build/orcavote_final.zkey`
+
+Nếu thay đổi circuit → phải rebuild toàn bộ pipeline và redeploy contract (vì vk_bytes thay đổi).
 
 ---
 
@@ -524,49 +728,48 @@ sui client object <ADMIN_CAP_ID>
 
 ```typescript
 import { Transaction } from '@mysten/sui/transactions';
+import { loadVkBytes } from './zk-prove';
 
-const PACKAGE_ID = '0x...';
-const REGISTRY_ID = '0x...';
-const ADMIN_CAP_ID = '0x...';
+const PACKAGE_ID = '0x5d53be76...';
+const REGISTRY_ID = '0xa9d9a72b...';
 
-// Register data asset
+// Register data asset (permissionless)
 const tx = new Transaction();
 tx.moveCall({
   target: `${PACKAGE_ID}::data_asset::register`,
   arguments: [
     tx.object(REGISTRY_ID),
-    tx.object(ADMIN_CAP_ID),
     tx.pure.vector('u8', walrusBlobIdBytes),
     tx.pure.vector('u8', sealIdentityBytes),
     tx.pure.vector('u8', nameBytes),
   ],
 });
 
-// Create poll
+// Create poll (permissionless — caller becomes poll admin)
+const vkBytes = await loadVkBytes();
 tx.moveCall({
   target: `${PACKAGE_ID}::governance::create_poll`,
   arguments: [
     tx.object(REGISTRY_ID),
-    tx.object(ADMIN_CAP_ID),
     tx.pure.vector('u8', dataBlobId),
     tx.pure.vector('u8', dataSealIdentity),
     tx.pure.vector('u8', councilRoot),
     tx.pure.u64(threshold),
     tx.pure.u64(votingEndMs),
-    tx.pure.vector('u8', vkBytes),
+    tx.pure.vector('u8', Array.from(vkBytes)),
     tx.pure.vector('u8', titleBytes),
   ],
 });
 
-// Submit vote (no AdminCap needed)
+// Submit vote (no special permission needed)
 tx.moveCall({
   target: `${PACKAGE_ID}::zk_vote::submit_vote`,
   arguments: [
     tx.object(REGISTRY_ID),
     tx.pure.id(pollId),
-    tx.pure.vector('u8', proofBytes),
-    tx.pure.vector('u8', publicInputsBytes),
-    tx.pure.vector('u8', nullifier),
+    tx.pure.vector('u8', Array.from(proofBytes)),
+    tx.pure.vector('u8', Array.from(publicInputsBytes)),
+    tx.pure.vector('u8', Array.from(nullifier)),
     tx.pure.u8(choice),  // 0=NO, 1=YES
     tx.object('0x6'),    // Clock shared object
   ],
@@ -638,7 +841,7 @@ client.subscribeEvent({
 ```
   ┌───────┐   start_voting   ┌─────────┐
   │ Setup │ ───────────────→ │ Voting  │
-  │  (0)  │    AdminCap      │   (1)   │
+  │  (0)  │   poll admin     │   (1)   │
   └───────┘                  └────┬────┘
                                   │
                     finalize / admin_finalize

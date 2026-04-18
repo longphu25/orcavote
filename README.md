@@ -31,6 +31,38 @@ move/orcavote/sources/
 
 See [move/orcavote/TECHNICAL.md](move/orcavote/TECHNICAL.md) for full technical documentation.
 
+## ZK Circuit
+
+Semaphore-style Groth16 circuit on BN254 — Poseidon Merkle membership + nullifier + signal.
+
+```
+circuits/
+├── orcavote.circom        # Circuit source (5314 constraints, tree depth 20)
+├── Makefile               # compile → setup → export pipeline
+├── export-vk-bytes.mjs    # Convert snarkjs VK → Arkworks vk_bytes
+└── build/                 # Compiled artifacts (gitignored)
+
+public/zk-circuit/         # Browser-ready artifacts (shipped with app)
+├── circuit.wasm           # Witness calculator (2 MB)
+├── circuit_final.zkey     # Proving key (3.2 MB)
+├── verification_key.json  # Human-readable VK
+└── vk_bytes.bin           # Arkworks VK for create_poll (384 bytes)
+
+src/zk-prove.ts            # Browser helper: loadVkBytes, generateProof, formatForSui
+```
+
+### Build circuit
+
+```bash
+cd circuits
+npm install        # circomlib
+make all           # compile → trusted setup → export → copy to public/
+```
+
+### Key concept
+
+`vk_bytes` (384 bytes) is a **static file** — built once from the circuit, used for all polls. It's the Arkworks-serialized Groth16 verifying key passed to `governance::create_poll`. The contract calls `groth16::prepare_verifying_key(bn254(), &vk_bytes)` and stores the prepared key in the Poll struct.
+
 ## Quick Start
 
 ### Build & Test
