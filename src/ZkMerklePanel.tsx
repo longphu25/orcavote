@@ -22,6 +22,7 @@ import { encryptAndUpload, encryptAndUploadAll, uploadToWalrus, AGGREGATORS } fr
 import type { UploadResult, NetworkKey } from './seal-walrus'
 import BlobIdPicker from './BlobIdPicker'
 import type { WalrusBlob } from './BlobIdPicker'
+import CreatePollPanel from './CreatePollPanel'
 
 /* ─── styles ─── */
 const card = {
@@ -67,7 +68,7 @@ const btnUpload = {
 } as const
 
 /* ─── Component ─── */
-export default function ZkMerklePanel() {
+export default function ZkMerklePanel({ onNavigateToPoll }: { onNavigateToPoll?: (pollId: string) => void }) {
   const currentAccount = useCurrentAccount()
   const ctx = useSuiClientContext()
   const [addresses, setAddresses] = useState('')
@@ -499,6 +500,16 @@ export default function ZkMerklePanel() {
           <div style={{ fontSize: 11, color: C.textMuted, textAlign: 'center', padding: '8px 0' }}>
             Identity blobs are Seal-encrypted per voter address — only the target voter can decrypt
           </div>
+
+          {/* Step 4: Create Poll On-Chain */}
+          <CreatePollPanel
+            merkleResult={result}
+            uploadResults={uploadResults}
+            selectedBlobId={selectedBlob?.blobId ?? ''}
+            selectedSealId={currentAccount?.address ?? ''}
+            pollTitle={pollTitle}
+            onNavigateToPoll={onNavigateToPoll}
+          />
         </>
       )}
 
