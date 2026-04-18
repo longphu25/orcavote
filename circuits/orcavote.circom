@@ -101,5 +101,6 @@ template OrcaVote(TREE_DEPTH) {
     signal_hash_sq <== signal_hash * signal_hash;
 }
 
-// Instantiate with tree depth 20 (supports up to 2^20 = ~1M voters)
-component main {public [merkle_root, nullifier_hash, signal_hash, external_nullifier]} = OrcaVote(20);
+// Instantiate with tree depth 10 (supports up to 2^10 = 1024 voters)
+// Sufficient for MVP. Increase to 15 or 20 for production if needed.
+component main {public [merkle_root, nullifier_hash, signal_hash, external_nullifier]} = OrcaVote(10);

@@ -4,8 +4,8 @@
 # Output goes to build/ and is copied to ../public/zk-circuit/
 
 CIRCUIT    := orcavote
-TREE_DEPTH := 20
-PTAU_POWER := 14
+TREE_DEPTH := 10
+PTAU_POWER := 13
 BUILD      := build
 OUTPUT     := ../public/zk-circuit
 
