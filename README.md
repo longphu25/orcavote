@@ -6,15 +6,15 @@
 
 | Item | ID |
 |------|----|
-| **Package ID** | `0xcaa9a44de1bcf23f63f904800f3c9c5acb69dd9cf45071835c47d004392ce82c` |
-| **Registry** (shared) | `0x96c9df61147c5adc893281064fa5400692f51265bd0585d3a99738eb8855cf21` |
-| **AdminCap** (owned) | `0x7058d45df6ba2cd0eabb72439033c8cd5b89e9151a18bfb0f10479c70fd1845d` |
-| **UpgradeCap** | `0x464cf0889bce247d2387bc9c28f6aa545ad8f67aadd7947245deb4dbd4ec804f` |
+| **Package ID** | `0x982f507de25cb88c8fd29b8a10d2375c81d39aa90b380956156aef61b0ab6eec` |
+| **Registry** (shared) | `0xf2a5b3f0ff9f0c53086060a396dc55bb95bc4ce4945201f0fc5217f82dfd8507` |
+| **AdminCap** (owned) | `0xc7582671147651922b465b736300bc0adc7a2fb088ebe0aa68c600ab6aee679e` |
+| **UpgradeCap** | `0x5ba21b910daf2cae72be725bcfadb7fd7b8577e21d262bc899e1c1caf28a8ebd` |
 | **Network** | Sui Testnet |
 | **Deployer** | `0xdfdd6484f7f94c80daefbfee06728f60236fde6bc229e30453306166a6b5691e` |
-| **Tx Digest** | `3H3M1NMGCYSS8YTXeYu3aAVm64eTdfoZuFPNihpXvPa4` |
+| **Tx Digest** | `3TWabhnS4JCSftkZzqankccgghWv2KZk5eZW1uBWSFPc` |
 
-Explorer: [View on SuiScan](https://suiscan.xyz/testnet/object/0xcaa9a44de1bcf23f63f904800f3c9c5acb69dd9cf45071835c47d004392ce82c)
+Explorer: [View on SuiScan](https://suiscan.xyz/testnet/object/0x982f507de25cb88c8fd29b8a10d2375c81d39aa90b380956156aef61b0ab6eec)
 
 > **Note:** Poll creation is permissionless — anyone can create a poll. The poll creator becomes the admin of that poll (register voters, start voting, force-finalize).
 
@@ -31,24 +31,27 @@ move/orcavote/sources/
 
 See [move/orcavote/TECHNICAL.md](move/orcavote/TECHNICAL.md) for full technical documentation.
 
+See [docs/FLOW.md](docs/FLOW.md) for the end-to-end flow, data formats, and bug log.
+
 ## ZK Circuit
 
 Semaphore-style Groth16 circuit on BN254 — Poseidon Merkle membership + nullifier + signal.
 
 ```
 circuits/
-├── orcavote.circom        # Circuit source (5314 constraints, tree depth 20)
+├── orcavote.circom        # Circuit source (2911 constraints, tree depth 10)
 ├── Makefile               # compile → setup → export pipeline
 ├── export-vk-bytes.mjs    # Convert snarkjs VK → Arkworks vk_bytes
 └── build/                 # Compiled artifacts (gitignored)
 
 public/zk-circuit/         # Browser-ready artifacts (shipped with app)
-├── circuit.wasm           # Witness calculator (2 MB)
-├── circuit_final.zkey     # Proving key (3.2 MB)
+├── circuit.wasm           # Witness calculator (~2 MB)
+├── circuit_final.zkey     # Proving key (~1.7 MB)
 ├── verification_key.json  # Human-readable VK
-└── vk_bytes.bin           # Arkworks VK for create_poll (384 bytes)
+└── vk_bytes.bin           # Arkworks VK for create_poll (392 bytes)
 
 src/zk-prove.ts            # Browser helper: loadVkBytes, generateProof, formatForSui
+src/merkle-pad.ts          # Full depth-10 Merkle tree builder (poseidon-lite)
 ```
 
 ### Build circuit
