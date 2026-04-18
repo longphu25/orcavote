@@ -203,3 +203,123 @@ VoterIdentityRef {
 - Circuit Groth16 cho membership + non‑double‑vote.  
 - CLI scripts: `admin` (gen + publish identities), `asset`, `request`, `vote`.  
 - Basic React UI: admin tạo poll + add voters, voter tải identity.json và bỏ phiếu.
+
+---
+
+## 9. Implementation Status
+
+### ✅ ĐÃ LÀM
+
+#### UI — Landing Page (`index.html`)
+- Dark mode OLED landing page (Orbitron + Exo 2 typography)
+- Sections: Hero, How It Works (4 steps), Features (6 cards), Use Cases (3 cards), CTA, Footer
+- Nội dung đúng PRD: ZK voting, Seal encryption, Walrus storage, on-chain governance
+- "Get Started" và "Launch App" buttons link sang `orcavote.html`
+- Design system từ ui-ux-pro-max: Dark Mode OLED + Trust & Authority style
+
+#### UI — App Dashboard (`orcavote.html`)
+- Sui DAppKit integration: `SuiClientProvider` + `WalletProvider` + `QueryClientProvider`
+- Network config: testnet (default) + mainnet via `getJsonRpcFullnodeUrl`
+- **Connect Wallet**: `ConnectModal` popup chọn ví Sui (Sui Wallet, Suiet, etc.)
+- **Network Selector**: dropdown switch testnet/mainnet via `useSuiClientContext`
+- **Wallet Panel**: click wallet icon hiện dropdown với:
+  - Full address + copy button
+  - SuiNS name (nếu có) via `useResolveSuiNSName`
+  - Token list via `useSuiClientQuery('getAllBalances')`
+  - Disconnect button
+- `autoConnect` enabled cho returning users
+
+#### ZK Merkle Identity Builder (WASM)
+- Load `zk_merkle_wasm` từ `public/sui-zk-merkle/` via script injection (bypass Vite public/ restriction)
+- UI panel trong dashboard khi wallet connected:
+  - Input: wallet addresses, poll ID, title, signal
+  - Build Poseidon Merkle tree (BN254) via WASM
+  - Output: Merkle root, tree depth, leaf count
+  - Identity blobs với Groth16 public inputs (merkle_root_le, nullifier_hash_le, etc.)
+  - Download individual `identity.json` hoặc full tree JSON
+  - Verify Merkle proof per identity
+  - Auto-fill connected wallet address
+  - WASM status badge (loading/ready/error)
+
+#### Seal Encryption + Walrus Upload
+- `seal-walrus.ts`: Seal encrypt + Walrus Publisher HTTP API upload
+  - `encryptIdentityBlob()`: Seal encrypt với voter address làm identity
+  - `uploadToWalrus()`: PUT to Publisher API với fallback publishers
+  - `encryptAndUpload()`: single blob flow
+  - `encryptAndUploadAll()`: batch với progress callback
+- Per-identity "Seal & Upload" button
+- "Seal Encrypt & Upload All to Walrus" batch button với progress (done/total)
+- Upload full Merkle tree JSON lên Walrus (không Seal — public metadata)
+- Uploaded blobs hiện: blob ID, encrypted size, "View on Walrus" link
+- Upload summary card: network, aggregator URL, upload count
+
+#### Build & Infra
+- Vite multi-page build: `index.html` + `orcavote.html` output riêng biệt
+- TypeScript 6 compatibility: `ignoreDeprecations`, `allowArbitraryExtensions`
+- CSS type declarations (`vite-env.d.ts`)
+- Shared design tokens (`theme.ts`)
+
+---
+
+### ❌ CHƯA LÀM
+
+#### Move Smart Contracts (on-chain)
+- [ ] `data_asset.move`: quản lý `DataAsset` (walrus_blob_id, seal_identity, owner, meta)
+- [ ] `governance.move`: quản lý `AccessRequest`/`Poll`, finalize logic, threshold
+- [ ] `zk_vote.move`: verify Groth16 proof, manage nullifiers, update tally YES/NO
+- [ ] Seal policy Move module: check trạng thái poll trước khi cấp key
+- [ ] `VoterIdentityRef` struct on-chain (poll_id, voter, walrus_blob_id, seal_identity)
+- [ ] Deploy lên testnet
+
+#### ZK Circuit (Circom + Groth16)
+- [ ] Circom circuit kiểu Semaphore (Merkle membership + nullifier + signal)
+- [ ] Groth16 trusted setup (powers of tau + phase 2)
+- [ ] Export verifying key cho Move contract
+- [ ] WASM prover cho browser (snarkjs hoặc custom)
+
+#### Voter Flow UI
+- [ ] Query `VoterIdentityRef` cho connected wallet → hiện danh sách polls
+- [ ] "Download Identity" button: Seal decrypt + Walrus fetch → lưu local
+- [ ] "Vote YES/NO" button: sinh ZK proof từ identity.json → submit tx on-chain
+- [ ] Hiện trạng thái vote realtime (yes/no count, threshold, deadline)
+- [ ] Hiện kết quả finalize (Approved/Rejected)
+
+#### Admin Flow UI
+- [ ] Form tạo poll mới (blob_id, seal_identity, voter list, threshold, deadline)
+- [ ] Batch gen identities + encrypt + upload (hiện tại chỉ có gen + upload, chưa gắn vào poll on-chain)
+- [ ] Tạo `VoterIdentityRef` on-chain cho mỗi voter
+- [ ] Finalize poll button
+
+#### Requester Flow UI
+- [ ] Form tạo `AccessRequest` (data_asset_id, purpose, threshold)
+- [ ] Hiện trạng thái request (Voting/Approved/Rejected)
+- [ ] Sau khi Approved: Seal decrypt dataset button
+
+#### CLI Scripts
+- [ ] `identity.ts`: gen identities + Merkle tree (hiện có WASM nhưng chưa có CLI wrapper)
+- [ ] `asset.ts`: register dataset on-chain
+- [ ] `request.ts`: create + finalize access request
+- [ ] `vote.ts`: cast vote with ZK proof
+- [ ] `admin.ts`: encrypt identity.json + publish refs
+
+#### Observer/Community UI
+- [ ] Dashboard hiện tất cả polls/requests public
+- [ ] Hiện vote tally (không lộ voter identity)
+- [ ] Hiện trạng thái dataset (encrypted, pending vote, released)
+
+---
+
+### 📊 Tổng kết tiến độ
+
+| Layer | Status | Chi tiết |
+|-------|--------|----------|
+| Landing Page | ✅ Done | Dark mode, đúng nội dung PRD |
+| Wallet Connect | ✅ Done | DAppKit, network switch, SuiNS, token list |
+| ZK Merkle WASM | ✅ Done | Build tree, gen identities, verify proof |
+| Seal + Walrus | ✅ Done | Encrypt identity blobs, upload to Walrus, upload tree JSON |
+| Move Contracts | ❌ Not started | Scaffold only, no logic |
+| ZK Circuit | ❌ Not started | No Circom circuit yet |
+| Voter UI | ❌ Not started | No poll list, no vote button |
+| Admin UI | 🟡 Partial | Gen + upload identities works, but not tied to on-chain poll |
+| Requester UI | ❌ Not started | No access request flow |
+| CLI Scripts | ❌ Not started | No CLI wrappers |
