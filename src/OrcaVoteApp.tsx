@@ -19,10 +19,14 @@ import {
   AtSign,
   Database,
   Vote,
+  List,
 } from 'lucide-react'
 import { C } from './theme'
 import DataAssetPanel from './DataAssetPanel'
 import ZkMerklePanel from './ZkMerklePanel'
+import PollListPanel from './PollListPanel'
+import PollDetailPanel from './PollDetailPanel'
+import type { PollInfo } from './poll-transactions'
 
 /* ─── helpers ─── */
 function formatBalance(raw: string, decimals = 9): string {
@@ -270,6 +274,7 @@ function WalletButton() {
 const TABS = [
   { key: 'data-asset', label: 'Data Asset', icon: Database },
   { key: 'create-poll', label: 'Tạo Poll', icon: Vote },
+  { key: 'polls', label: 'Polls', icon: List },
 ] as const
 
 type TabKey = (typeof TABS)[number]['key']
@@ -329,15 +334,45 @@ function AppNavbar({ activeTab, setActiveTab }: { activeTab: TabKey; setActiveTa
 }
 
 /* ─── Dashboard ─── */
-function Dashboard({ activeTab }: { activeTab: TabKey }) {
+function Dashboard({ activeTab, setActiveTab }: { activeTab: TabKey; setActiveTab: (t: TabKey) => void }) {
   const currentAccount = useCurrentAccount()
+  const [selectedPoll, setSelectedPoll] = useState<PollInfo | null>(null)
+
+  // Reset selected poll when switching away from polls tab
+  const prevTab = useRef(activeTab)
+  useEffect(() => {
+    if (prevTab.current === 'polls' && activeTab !== 'polls') {
+      setSelectedPoll(null)
+    }
+    prevTab.current = activeTab
+  }, [activeTab])
 
   return (
     <div style={{ maxWidth: 800, margin: '0 auto', padding: '0 24px' }}>
       {currentAccount ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
           {activeTab === 'data-asset' && <DataAssetPanel />}
-          {activeTab === 'create-poll' && <ZkMerklePanel />}
+          {activeTab === 'create-poll' && <ZkMerklePanel onNavigateToPoll={(pollId) => {
+            setSelectedPoll({
+              pollId,
+              title: '',
+              status: 1,
+              threshold: 0,
+              totalVoters: 0,
+              yesCount: 0,
+              noCount: 0,
+              votingEnd: 0,
+              admin: '',
+              councilRoot: '',
+            })
+            setActiveTab('polls')
+          }} />}
+          {activeTab === 'polls' && !selectedPoll && (
+            <PollListPanel onSelectPoll={setSelectedPoll} />
+          )}
+          {activeTab === 'polls' && selectedPoll && (
+            <PollDetailPanel poll={selectedPoll} onBack={() => setSelectedPoll(null)} />
+          )}
         </div>
       ) : (
         <div style={{ textAlign: 'center' }}>
@@ -365,7 +400,7 @@ export default function OrcaVoteApp() {
     <div style={{ minHeight: '100vh', overflowX: 'hidden' }}>
       <AppNavbar activeTab={activeTab} setActiveTab={setActiveTab} />
       <main style={{ paddingTop: 120, paddingBottom: 80 }}>
-        <Dashboard activeTab={activeTab} />
+        <Dashboard activeTab={activeTab} setActiveTab={setActiveTab} />
       </main>
     </div>
   )
