@@ -12,8 +12,8 @@ import './index.css'
 import App from './App.tsx'
 
 const { networkConfig } = createNetworkConfig({
-  testnet: { url: getJsonRpcFullnodeUrl('testnet') },
-  mainnet: { url: getJsonRpcFullnodeUrl('mainnet') },
+  testnet: { url: getJsonRpcFullnodeUrl('testnet'), network: 'testnet' },
+  mainnet: { url: getJsonRpcFullnodeUrl('mainnet'), network: 'mainnet' },
 })
 
 const queryClient = new QueryClient()
