@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Circuit build artifacts (regenerated via `cd circuits && make all`)
+circuits/build/
+circuits/node_modules/
