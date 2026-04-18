@@ -1,10 +1,11 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, forwardRef } from 'react'
 import {
   ConnectModal,
   useCurrentAccount,
   useDisconnectWallet,
   useSuiClientContext,
   useSuiClientQuery,
+  useResolveSuiNSName,
 } from '@mysten/dapp-kit'
 import {
   Shield,
@@ -15,6 +16,7 @@ import {
   X,
   Copy,
   Check,
+  AtSign,
 } from 'lucide-react'
 import { C } from './theme'
 
@@ -110,6 +112,8 @@ function WalletPanel({ onClose }: { onClose: () => void }) {
   const { mutate: disconnect } = useDisconnectWallet()
   const [copied, setCopied] = useState(false)
 
+  const { data: suiNSName } = useResolveSuiNSName(currentAccount?.address)
+
   const { data: balances, isPending } = useSuiClientQuery(
     'getAllBalances',
     { owner: currentAccount?.address ?? '' },
@@ -143,6 +147,16 @@ function WalletPanel({ onClose }: { onClose: () => void }) {
           <X size={16} />
         </button>
       </div>
+
+      {/* SuiNS Name */}
+      {suiNSName && (
+        <div style={{ padding: '12px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <AtSign size={14} color={C.accent} />
+          <span style={{ fontSize: 15, fontWeight: 700, color: C.accent, fontFamily: "'Exo 2',sans-serif" }}>
+            {suiNSName}
+          </span>
+        </div>
+      )}
 
       {/* Address */}
       <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}` }}>
@@ -219,6 +233,37 @@ function WalletPanel({ onClose }: { onClose: () => void }) {
   )
 }
 
+/* ─── Wallet Button (connected state — uses SuiNS) ─── */
+const WalletButtonConnected = forwardRef<
+  HTMLDivElement,
+  { address: string; panelOpen: boolean; setPanelOpen: (v: boolean) => void }
+>(function WalletButtonConnected({ address, panelOpen, setPanelOpen }, ref) {
+  const { data: suiNSName } = useResolveSuiNSName(address)
+  const displayName = suiNSName ?? shortAddr(address)
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        onClick={() => setPanelOpen(!panelOpen)}
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 8,
+          padding: '8px 16px', borderRadius: 10,
+          border: `1px solid ${C.border}`, background: C.surface,
+          fontSize: 13, fontWeight: 600, color: suiNSName ? C.accent : C.primary,
+          cursor: 'pointer', fontFamily: "'Exo 2',sans-serif",
+          maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}
+      >
+        {suiNSName ? <AtSign size={14} /> : <Wallet size={14} />}
+        {displayName}
+        <ChevronDown size={14} style={{ opacity: 0.5, flexShrink: 0 }} />
+      </button>
+
+      {panelOpen && <WalletPanel onClose={() => setPanelOpen(false)} />}
+    </div>
+  )
+})
+
 /* ─── Wallet Button ─── */
 function WalletButton() {
   const currentAccount = useCurrentAccount()
@@ -235,26 +280,13 @@ function WalletButton() {
   }, [])
 
   if (currentAccount) {
-    const short = shortAddr(currentAccount.address)
     return (
-      <div ref={ref} style={{ position: 'relative' }}>
-        <button
-          onClick={() => setPanelOpen(!panelOpen)}
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 8,
-            padding: '8px 16px', borderRadius: 10,
-            border: `1px solid ${C.border}`, background: C.surface,
-            fontSize: 13, fontWeight: 600, color: C.primary,
-            cursor: 'pointer', fontFamily: "'Exo 2',sans-serif",
-          }}
-        >
-          <Wallet size={14} />
-          {short}
-          <ChevronDown size={14} style={{ opacity: 0.5 }} />
-        </button>
-
-        {panelOpen && <WalletPanel onClose={() => setPanelOpen(false)} />}
-      </div>
+      <WalletButtonConnected
+        address={currentAccount.address}
+        panelOpen={panelOpen}
+        setPanelOpen={setPanelOpen}
+        ref={ref}
+      />
     )
   }
 
