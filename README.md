@@ -1,75 +1,65 @@
-# React + TypeScript + Vite
+# OrcaVote
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+**Vote-to-unlock private data** — A protocol on Sui for governance-driven release of encrypted data using ZK anonymous voting, Seal encryption, and Walrus storage.
 
-Currently, two official plugins are available:
+## Deployed Contracts (Testnet)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+| Item | ID |
+|------|----|
+| **Package ID** | `0xc3c9950da569376b982e5e7e64b493e09771f50a0dc1c7d5e03771c093c95a19` |
+| **Registry** (shared) | `0xa676ee02e4b84353971f4e362b63b0ff7be3ea483b3701226e1e6450e450e4e6` |
+| **AdminCap** (owned) | `0x3b2f3af7cd71fc77a795ac37296ce2b9b0e9a9fbd64cac606728e6607107c0ac` |
+| **UpgradeCap** | `0x2269844292ece5b7517f3db5be4cc196434ba479e664f670c89fc3b89dac4c9b` |
+| **Network** | Sui Testnet |
+| **Deployer** | `0xdfdd6484f7f94c80daefbfee06728f60236fde6bc229e30453306166a6b5691e` |
+| **Tx Digest** | `7o71FagQ7toF63VqRbD564sFEKSm1bGJWKKMjPZz8sNA` |
 
-## React Compiler
+Explorer: [View on SuiScan](https://suiscan.xyz/testnet/object/0xc3c9950da569376b982e5e7e64b493e09771f50a0dc1c7d5e03771c093c95a19)
 
-The React Compiler is enabled on this template. See [this documentation](https://react.dev/learn/react-compiler) for more information.
+## Move Modules
 
-Note: This will impact Vite dev & build performances.
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```
+move/orcavote/sources/
+├── registry.move      # Core types, Registry singleton, AdminCap, init
+├── data_asset.move    # Register encrypted datasets (Walrus + Seal)
+├── governance.move    # Poll lifecycle, voter registration, finalize
+├── zk_vote.move       # Groth16 BN254 proof verification, nullifier, tally
+└── seal_policy.move   # Seal key-server approval (identity + dataset)
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+See [move/orcavote/TECHNICAL.md](move/orcavote/TECHNICAL.md) for full technical documentation.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Quick Start
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+### Build & Test
+
+```bash
+cd move/orcavote
+sui move build
+sui move test
+```
+
+### Frontend
+
+```bash
+npm install
+npm run dev
+```
+
+## Architecture
+
+```
+Off-chain                          On-chain (Sui)
+─────────                          ──────────────
+WASM: gen Merkle tree    ────→     Registry (shared singleton)
+      + identities                   ├── polls: Table<ID, Poll>
+                                     ├── data_assets: Table<ID, DataAsset>
+Seal SDK: encrypt        ────→      ├── voter_refs: Table<Key, VoterIdentityRef>
+          identity.json              └── poll_voters: Table<ID, vector<address>>
+
+Walrus: store ciphertext            Modules:
+                                     ├── governance  → create poll, register voters, finalize
+Circom + Groth16:        ────→       ├── zk_vote     → verify proof, update tally
+  browser prover                     ├── seal_policy  → Seal dry-run approval
+                                     └── data_asset   → register datasets
 ```
