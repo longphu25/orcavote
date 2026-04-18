@@ -225,6 +225,41 @@ export function submitVoteTx(params: SubmitVoteParams): Transaction {
 
 // ─── On-chain poll query types ───
 
+// ─── Finalize ───
+
+/**
+ * Build transaction for governance::finalize (permissionless, after deadline).
+ */
+export function finalizePollTx(pollId: string): Transaction {
+  const tx = new Transaction()
+  tx.moveCall({
+    target: `${PACKAGE_ID}::governance::finalize`,
+    arguments: [
+      tx.object(REGISTRY_ID),
+      tx.pure.id(pollId),
+      tx.object('0x6'), // Clock
+    ],
+  })
+  return tx
+}
+
+/**
+ * Build transaction for governance::admin_finalize (early termination by poll creator).
+ */
+export function adminFinalizePollTx(pollId: string): Transaction {
+  const tx = new Transaction()
+  tx.moveCall({
+    target: `${PACKAGE_ID}::governance::admin_finalize`,
+    arguments: [
+      tx.object(REGISTRY_ID),
+      tx.pure.id(pollId),
+    ],
+  })
+  return tx
+}
+
+// ─── On-chain poll query types ───
+
 export const STATUS_LABELS: Record<number, string> = {
   0: 'Setup',
   1: 'Voting',
@@ -250,4 +285,6 @@ export interface PollInfo {
   votingEnd: number
   admin: string
   councilRoot: string
+  dataBlobId: string
+  dataSealIdentity: string
 }

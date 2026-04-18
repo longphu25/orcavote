@@ -97,6 +97,15 @@ function formatSize(bytes: number): string {
 
 type UploadStep = 'encrypting' | 'encoding' | 'register' | 'uploading' | 'certify' | null
 
+const PRICE_PER_UNIT_EPOCH = 0.5
+const BYTES_PER_UNIT = 1024 * 1024
+
+function estimateCost(fileSize: number, ep: number) {
+  const units = Math.max(1, Math.ceil(fileSize / BYTES_PER_UNIT))
+  const storage = units * PRICE_PER_UNIT_EPOCH * ep
+  return { units, storage, total: storage + 0.01 }
+}
+
 /* ─── Component ─── */
 export default function DataAssetPanel() {
   const currentAccount = useCurrentAccount()
@@ -110,6 +119,8 @@ export default function DataAssetPanel() {
   const [name, setName] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const [fileBytes, setFileBytes] = useState<Uint8Array | null>(null)
+  const [epochs, setEpochs] = useState(5)
+  const [deletable, setDeletable] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [uploadStep, setUploadStep] = useState<UploadStep>(null)
   const [error, setError] = useState<string | null>(null)
@@ -125,6 +136,9 @@ export default function DataAssetPanel() {
   const [decrypting, setDecrypting] = useState<string | null>(null)
   const [decryptedData, setDecryptedData] = useState<Record<string, { raw: Uint8Array; text: string | null }>>({})
   const [decryptError, setDecryptError] = useState<string | null>(null)
+
+  // Manual blob ID input
+  const [manualBlobId, setManualBlobId] = useState('')
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
@@ -167,7 +181,7 @@ export default function DataAssetPanel() {
       const encoded = await flow.encode()
 
       setUploadStep('register')
-      const registerTx = flow.register({ epochs: 5, owner: currentAccount.address, deletable: true })
+      const registerTx = flow.register({ epochs, owner: currentAccount.address, deletable })
       const regResult = await signAndExecute({ transaction: registerTx })
 
       setUploadStep('uploading')
@@ -194,7 +208,7 @@ export default function DataAssetPanel() {
     }
   }, [fileBytes, file, name, currentAccount, network, signAndExecute])
 
-  // Fetch wallet's owned Walrus Blob objects
+  // Fetch wallet's owned Walrus Blob objects (paginated)
   const fetchWalrusBlobs = useCallback(async () => {
     if (!currentAccount) return
     setLoadingBlobs(true)
@@ -203,28 +217,35 @@ export default function DataAssetPanel() {
       let allBlobs: WalrusBlob[] = []
       for (const blobType of [WALRUS_BLOB_TYPE_TESTNET, WALRUS_BLOB_TYPE_MAINNET]) {
         try {
-          const res = await suiClient.getOwnedObjects({
-            owner: currentAccount.address,
-            filter: { StructType: blobType },
-            options: { showContent: true, showType: true },
-            limit: 50,
-          })
-          for (const item of res.data) {
-            const obj = item.data
-            if (!obj?.content || obj.content.dataType !== 'moveObject') continue
-            const fields = obj.content.fields as Record<string, unknown>
-            const storage = (fields.storage as Record<string, unknown>)?.fields as Record<string, unknown> | undefined
-            allBlobs.push({
-              objectId: obj.objectId,
-              blobId: blobIdToBase64url(String(fields.blob_id ?? '0')),
-              size: Number(fields.size ?? 0),
-              registeredEpoch: Number(fields.registered_epoch ?? 0),
-              certifiedEpoch: fields.certified_epoch != null ? Number(fields.certified_epoch) : null,
-              startEpoch: Number(storage?.start_epoch ?? 0),
-              endEpoch: Number(storage?.end_epoch ?? 0),
-              deletable: Boolean(fields.deletable),
-              version: Number(obj.version ?? 0),
+          let cursor: string | null | undefined = null
+          let hasNext = true
+          while (hasNext) {
+            const res = await suiClient.getOwnedObjects({
+              owner: currentAccount.address,
+              filter: { StructType: blobType },
+              options: { showContent: true, showType: true },
+              limit: 50,
+              ...(cursor ? { cursor } : {}),
             })
+            for (const item of res.data) {
+              const obj = item.data
+              if (!obj?.content || obj.content.dataType !== 'moveObject') continue
+              const fields = obj.content.fields as Record<string, unknown>
+              const storage = (fields.storage as Record<string, unknown>)?.fields as Record<string, unknown> | undefined
+              allBlobs.push({
+                objectId: obj.objectId,
+                blobId: blobIdToBase64url(String(fields.blob_id ?? '0')),
+                size: Number(fields.size ?? 0),
+                registeredEpoch: Number(fields.registered_epoch ?? 0),
+                certifiedEpoch: fields.certified_epoch != null ? Number(fields.certified_epoch) : null,
+                startEpoch: Number(storage?.start_epoch ?? 0),
+                endEpoch: Number(storage?.end_epoch ?? 0),
+                deletable: Boolean(fields.deletable),
+                version: Number(obj.version ?? 0),
+              })
+            }
+            hasNext = res.hasNextPage
+            cursor = res.nextCursor
           }
           if (allBlobs.length > 0) break
         } catch { /* type not on this network */ }
@@ -242,12 +263,13 @@ export default function DataAssetPanel() {
   }, [currentAccount?.address]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Decrypt a blob: fetch from Walrus → try Seal decrypt → show content
-  const handleDecrypt = useCallback(async (blob: WalrusBlob) => {
+  const handleDecrypt = useCallback(async (blobId: string, key?: string) => {
     if (!currentAccount) return
-    setDecrypting(blob.objectId)
+    const decryptKey = key ?? blobId
+    setDecrypting(decryptKey)
     setDecryptError(null)
     try {
-      const ciphertext = await fetchBlobFromWalrus(blob.blobId, network)
+      const ciphertext = await fetchBlobFromWalrus(blobId, network)
 
       let decrypted: Uint8Array
       try {
@@ -263,12 +285,12 @@ export default function DataAssetPanel() {
         const { signature } = await signPersonalMessage({ message: msg })
         sessionKey.setPersonalMessageSignature(signature)
 
+        // private_seal pattern: seal_approve(id) — checks sender == owner
         const tx = new Transaction()
         tx.moveCall({
-          target: `${SEAL_PACKAGE_ID}::whitelist::seal_approve`,
+          target: `${SEAL_PACKAGE_ID}::private_seal::seal_approve`,
           arguments: [
             tx.pure.vector('u8', fromHex(encObj.id)),
-            tx.object(encObj.id),
           ],
         })
         const txBytes = await tx.build({ client: suiClient, onlyTransactionKind: true })
@@ -295,7 +317,7 @@ export default function DataAssetPanel() {
         if (printable / decoded.length > 0.9) text = decoded
       } catch { /* binary */ }
 
-      setDecryptedData((prev) => ({ ...prev, [blob.objectId]: { raw: decrypted, text } }))
+      setDecryptedData((prev) => ({ ...prev, [decryptKey]: { raw: decrypted, text } }))
     } catch (e: unknown) {
       setDecryptError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -337,7 +359,7 @@ export default function DataAssetPanel() {
           <span style={label}>Dataset Name</span>
           <input style={input} placeholder="Q1 Revenue Report" value={name} onChange={(e) => setName(e.target.value)} />
         </div>
-        <div style={{ marginBottom: 20 }}>
+        <div style={{ marginBottom: 16 }}>
           <span style={label}>File</span>
           <div
             style={{ padding: 20, borderRadius: 12, border: `2px dashed ${C.border}`, background: C.bg, textAlign: 'center', cursor: 'pointer' }}
@@ -362,6 +384,63 @@ export default function DataAssetPanel() {
           </div>
           <input ref={fileRef} type="file" style={{ display: 'none' }} onChange={handleFileSelect} />
         </div>
+
+        {/* Epoch + Deletable + Cost Estimate — shown after file selected */}
+        {file && fileBytes && !uploading && (
+          <>
+            <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+              <div style={{ flex: 1 }}>
+                <span style={label}>Storage Epochs</span>
+                <select
+                  value={epochs}
+                  onChange={(e) => setEpochs(Number(e.target.value))}
+                  style={{ ...input, cursor: 'pointer' }}
+                >
+                  {[1, 3, 5, 10, 25, 53].map((e) => (
+                    <option key={e} value={e}>{e} epochs (~{e * 14}d)</option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ flex: 1 }}>
+                <span style={label}>Deletable</span>
+                <select
+                  value={deletable ? '1' : '0'}
+                  onChange={(e) => setDeletable(e.target.value === '1')}
+                  style={{ ...input, cursor: 'pointer' }}
+                >
+                  <option value="1">Yes</option>
+                  <option value="0">No (permanent)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Cost Estimate */}
+            {(() => {
+              const c = estimateCost(fileBytes.length, epochs)
+              return (
+                <div style={{ padding: 14, borderRadius: 12, border: `1px solid rgba(59,130,246,0.2)`, background: 'rgba(59,130,246,0.04)', marginBottom: 20 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <span style={{ fontSize: 11, color: C.textMuted }}>Storage Units</span>
+                    <span style={{ fontSize: 12, color: C.text, fontWeight: 600 }}>{c.units} (⌈{formatSize(fileBytes.length)} / 1MiB⌉)</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <span style={{ fontSize: 11, color: C.textMuted }}>Est. Cost</span>
+                    <span style={{ fontSize: 12, color: C.accent, fontWeight: 700 }}>~{c.total.toFixed(4)} WAL</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <span style={{ fontSize: 11, color: C.textMuted }}>Formula</span>
+                    <span style={{ fontSize: 10, color: C.textMuted }}>{c.units} × {PRICE_PER_UNIT_EPOCH} × {epochs} + 0.01</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: 11, color: C.textMuted }}>Blob Owner</span>
+                    <span style={{ fontSize: 12, color: C.green, fontWeight: 600 }}>You (wallet)</span>
+                  </div>
+                </div>
+              )
+            })()}
+          </>
+        )}
+
         <button
           style={{ ...btnPrimary, opacity: uploading || !fileBytes ? 0.5 : 1 }}
           onClick={handleUpload}
@@ -369,7 +448,7 @@ export default function DataAssetPanel() {
         >
           {uploading
             ? <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> {uploadStep ? stepLabel[uploadStep] : 'Processing…'}</>
-            : <><Lock size={16} /> <Upload size={16} /> Seal Encrypt & Upload to Walrus</>
+            : <><Lock size={16} /> <Upload size={16} /> Seal Encrypt & Upload to Walrus ({epochs} epochs)</>
           }
         </button>
         {uploading && uploadStep && (
@@ -401,14 +480,97 @@ export default function DataAssetPanel() {
                   <span>Blob: {a.blobId.slice(0, 12)}…{a.blobId.slice(-6)}</span>
                   <span>{formatSize(a.originalSize)} → {formatSize(a.encryptedSize)} encrypted</span>
                 </div>
-                <a href={`${AGGREGATORS[network]}/v1/blobs/${a.blobId}`} target="_blank" rel="noopener noreferrer" style={{ ...btnSm, borderColor: 'rgba(16,185,129,0.3)', color: C.green, textDecoration: 'none' }}>
-                  <ExternalLink size={12} /> View on Walrus
-                </a>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <a href={`${AGGREGATORS[network]}/v1/blobs/${a.blobId}`} target="_blank" rel="noopener noreferrer" style={{ ...btnSm, borderColor: 'rgba(16,185,129,0.3)', color: C.green, textDecoration: 'none' }}>
+                    <ExternalLink size={12} /> View on Walrus
+                  </a>
+                  {!decryptedData[`session_${a.blobId}`] && (
+                    <button style={{ ...btnSm, borderColor: 'rgba(245,158,11,0.3)', color: C.accent }} onClick={() => handleDecrypt(a.blobId, `session_${a.blobId}`)} disabled={decrypting === `session_${a.blobId}`}>
+                      {decrypting === `session_${a.blobId}`
+                        ? <><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Decrypting…</>
+                        : <><Unlock size={12} /> Fetch & Decrypt</>}
+                    </button>
+                  )}
+                  {decryptedData[`session_${a.blobId}`] && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, color: C.green }}>
+                      <Unlock size={12} /> Decrypted
+                    </span>
+                  )}
+                </div>
+                {decryptedData[`session_${a.blobId}`] && (() => {
+                  const data = decryptedData[`session_${a.blobId}`]
+                  return (
+                    <div style={{ marginTop: 10, padding: 12, borderRadius: 10, background: C.surface, border: `1px solid ${C.border}`, maxHeight: 200, overflow: 'auto' }}>
+                      <span style={{ fontSize: 11, color: C.textMuted }}>{data.text ? 'Text content' : 'Binary content'} · {formatSize(data.raw.length)}</span>
+                      {data.text ? (
+                        <pre style={{ fontSize: 12, color: C.text, fontFamily: "'Exo 2',monospace", whiteSpace: 'pre-wrap', wordBreak: 'break-all', margin: '8px 0 0' }}>
+                          {data.text.slice(0, 3000)}{data.text.length > 3000 ? '\n…(truncated)' : ''}
+                        </pre>
+                      ) : (
+                        <div style={{ fontSize: 12, color: C.textMuted, marginTop: 4 }}>Binary data ({formatSize(data.raw.length)})</div>
+                      )}
+                    </div>
+                  )
+                })()}
               </div>
             ))}
           </div>
         </div>
       )}
+
+      {/* ═══ Manual Blob ID Decrypt ═══ */}
+      <div style={card}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          <Unlock size={16} color={C.accent} />
+          <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 14, fontWeight: 600, color: C.heading }}>
+            Decrypt by Blob ID
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            style={{ ...input, flex: 1 }}
+            placeholder="Paste Walrus blob ID (base64url)…"
+            value={manualBlobId}
+            onChange={(e) => setManualBlobId(e.target.value)}
+          />
+          <button
+            style={{ ...btnSm, borderColor: 'rgba(245,158,11,0.3)', color: C.accent, whiteSpace: 'nowrap' }}
+            disabled={!manualBlobId.trim() || decrypting === `manual_${manualBlobId}`}
+            onClick={() => {
+              const bid = manualBlobId.trim()
+              if (bid) handleDecrypt(bid, `manual_${bid}`)
+            }}
+          >
+            {decrypting?.startsWith('manual_')
+              ? <><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Decrypting…</>
+              : <><Unlock size={12} /> Fetch & Decrypt</>}
+          </button>
+        </div>
+        {decryptedData[`manual_${manualBlobId.trim()}`] && (() => {
+          const data = decryptedData[`manual_${manualBlobId.trim()}`]
+          return (
+            <div style={{ marginTop: 10, padding: 12, borderRadius: 10, background: C.surface, border: `1px solid ${C.border}`, maxHeight: 300, overflow: 'auto' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <span style={{ fontSize: 11, color: C.textMuted }}>{data.text ? 'Text content' : 'Binary content'} · {formatSize(data.raw.length)}</span>
+                <button style={{ ...btnSm, padding: '4px 8px', fontSize: 11 }} onClick={() => {
+                  const blob = new Blob([data.raw.buffer as ArrayBuffer])
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url; a.download = `blob_${manualBlobId.trim().slice(0, 8)}`; a.click()
+                  URL.revokeObjectURL(url)
+                }}>Download</button>
+              </div>
+              {data.text ? (
+                <pre style={{ fontSize: 12, color: C.text, fontFamily: "'Exo 2',monospace", whiteSpace: 'pre-wrap', wordBreak: 'break-all', margin: 0 }}>
+                  {data.text.slice(0, 5000)}{data.text.length > 5000 ? '\n…(truncated)' : ''}
+                </pre>
+              ) : (
+                <div style={{ fontSize: 12, color: C.textMuted }}>Binary data ({formatSize(data.raw.length)}). Use Download to save.</div>
+              )}
+            </div>
+          )
+        })()}
+      </div>
 
       {/* ═══ My Walrus Blobs (on-chain) ═══ */}
       <div style={card}>
@@ -456,6 +618,7 @@ export default function DataAssetPanel() {
           const currentEpoch = Math.max(...walrusBlobs.map(b => b.registeredEpoch))
           const activeBlobs = walrusBlobs
             .filter(b => !(b.endEpoch > 0 && b.endEpoch <= currentEpoch))
+            .sort((a, b) => b.registeredEpoch - a.registeredEpoch || b.version - a.version)
             .sort((a, b) => b.registeredEpoch - a.registeredEpoch)
           if (activeBlobs.length === 0) return (
             <div style={{ textAlign: 'center', padding: 24 }}>
@@ -499,7 +662,7 @@ export default function DataAssetPanel() {
                       <ExternalLink size={12} /> View on Walrus
                     </a>
                     {!data && (
-                      <button style={{ ...btnSm, borderColor: 'rgba(245,158,11,0.3)', color: C.accent }} onClick={() => handleDecrypt(b)} disabled={isDecrypting}>
+                      <button style={{ ...btnSm, borderColor: 'rgba(245,158,11,0.3)', color: C.accent }} onClick={() => handleDecrypt(b.blobId, b.objectId)} disabled={isDecrypting}>
                         {isDecrypting
                           ? <><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Decrypting…</>
                           : <><Unlock size={12} /> Fetch & Decrypt</>}

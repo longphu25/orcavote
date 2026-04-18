@@ -165,6 +165,8 @@ export default function PollListPanel({ onSelectPoll }: PollListPanelProps) {
             votingEnd,
             admin: String(parsed.admin ?? ''),
             councilRoot: '',
+            dataBlobId: '',
+            dataSealIdentity: '',
           })
         } catch {
           // If devInspect fails, still show the poll from event data
@@ -179,6 +181,8 @@ export default function PollListPanel({ onSelectPoll }: PollListPanelProps) {
             votingEnd: Number(parsed.voting_end ?? 0),
             admin: String(parsed.admin ?? ''),
             councilRoot: '',
+            dataBlobId: '',
+            dataSealIdentity: '',
           })
         }
       }

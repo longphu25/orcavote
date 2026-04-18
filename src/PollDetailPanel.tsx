@@ -4,6 +4,7 @@ import {
   useSuiClient,
   useSuiClientContext,
   useSignAndExecuteTransaction,
+  useSignPersonalMessage,
 } from '@mysten/dapp-kit'
 import {
   ArrowLeft,
@@ -17,7 +18,10 @@ import {
   ThumbsDown,
   Shield,
   Lock,
+  Unlock,
   Zap,
+  Database,
+  Gavel,
 } from 'lucide-react'
 import { C } from './theme'
 import {
@@ -26,12 +30,16 @@ import {
   STATUS_LABELS,
   STATUS_COLORS,
   submitVoteTx,
+  finalizePollTx,
+  adminFinalizePollTx,
   suiScanTxUrl,
 } from './poll-transactions'
 import type { PollInfo } from './poll-transactions'
 import type { NetworkKey } from './seal-walrus'
-import { fetchBlobFromWalrus } from './seal-walrus'
+import { fetchBlobFromWalrus, AGGREGATORS } from './seal-walrus'
+import { SessionKey, EncryptedObject, SealClient } from '@mysten/seal'
 import { Transaction } from '@mysten/sui/transactions'
+import { fromHex } from '@mysten/sui/utils'
 import type { IdentityBlob } from './zk-merkle'
 import {
   generateProof,
@@ -78,6 +86,7 @@ export default function PollDetailPanel({ poll, onBack }: PollDetailPanelProps) 
   const suiClient = useSuiClient()
   const ctx = useSuiClientContext()
   const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction()
+  const { mutateAsync: signPersonalMessage } = useSignPersonalMessage()
   const network = (ctx.network ?? 'testnet') as NetworkKey
 
   const [choice, setChoice] = useState<number | null>(null) // 0=NO, 1=YES
@@ -86,6 +95,17 @@ export default function PollDetailPanel({ poll, onBack }: PollDetailPanelProps) 
   const [txDigest, setTxDigest] = useState<string | null>(null)
   const [isRegistered, setIsRegistered] = useState<boolean | null>(null)
   const [checkingReg, setCheckingReg] = useState(false)
+
+  // Finalize state
+  const [finalizing, setFinalizing] = useState(false)
+  const [finalizeError, setFinalizeError] = useState<string | null>(null)
+  const [finalizeTxDigest, setFinalizeTxDigest] = useState<string | null>(null)
+
+  // Dataset decrypt state
+  const [dataBlobId, setDataBlobId] = useState(poll.dataBlobId || '')
+  const [dataDecrypting, setDataDecrypting] = useState(false)
+  const [dataDecrypted, setDataDecrypted] = useState<{ raw: Uint8Array; text: string | null } | null>(null)
+  const [dataDecryptError, setDataDecryptError] = useState<string | null>(null)
 
   // Live poll data
   const [liveYes, setLiveYes] = useState(poll.yesCount)
@@ -212,6 +232,122 @@ export default function PollDetailPanel({ poll, onBack }: PollDetailPanelProps) 
   }, [suiClient, poll.pollId, poll.status])
 
   useEffect(() => { refreshTally() }, [refreshTally])
+
+  // Fetch data_blob_id from on-chain if not already set
+  useEffect(() => {
+    if (dataBlobId) return
+    ;(async () => {
+      try {
+        const tx = new Transaction()
+        tx.moveCall({
+          target: `${PACKAGE_ID}::governance::poll_data_blob_id`,
+          arguments: [tx.object(REGISTRY_ID), tx.pure.id(poll.pollId)],
+        })
+        const result = await suiClient.devInspectTransactionBlock({
+          transactionBlock: tx,
+          sender: '0x0000000000000000000000000000000000000000000000000000000000000000',
+        })
+        const bytes = result.results?.[0]?.returnValues?.[0]?.[0]
+        if (bytes) {
+          const decoded = decodeBcsVectorU8AsString(bytes as number[])
+          if (decoded) setDataBlobId(decoded)
+        }
+      } catch { /* ignore */ }
+    })()
+  }, [poll.pollId, suiClient, dataBlobId])
+
+  // ─── Finalize flow ───
+  const handleFinalize = useCallback(async (admin: boolean) => {
+    setFinalizing(true)
+    setFinalizeError(null)
+    try {
+      const tx = admin ? adminFinalizePollTx(poll.pollId) : finalizePollTx(poll.pollId)
+      await signAndExecute(
+        { transaction: tx },
+        {
+          onSuccess: (data) => {
+            setFinalizeTxDigest(data.digest)
+            setTimeout(refreshTally, 2000)
+          },
+        },
+      )
+    } catch (e: unknown) {
+      setFinalizeError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setFinalizing(false)
+    }
+  }, [poll.pollId, signAndExecute, refreshTally])
+
+  // ─── Dataset decrypt flow (Seal seal_approve_dataset) ───
+  const handleDecryptDataset = useCallback(async () => {
+    if (!currentAccount || !dataBlobId) return
+    setDataDecrypting(true)
+    setDataDecryptError(null)
+    try {
+      // 1. Fetch encrypted blob from Walrus
+      const ciphertext = await fetchBlobFromWalrus(dataBlobId, network)
+
+      let decrypted: Uint8Array
+      try {
+        const encObj = EncryptedObject.parse(ciphertext)
+
+        // 2. Create session key
+        const sessionKey = await SessionKey.create({
+          address: currentAccount.address,
+          packageId: PACKAGE_ID,
+          ttlMin: 10,
+          suiClient,
+        })
+        const msg = sessionKey.getPersonalMessage()
+        const { signature } = await signPersonalMessage({ message: msg })
+        sessionKey.setPersonalMessageSignature(signature)
+
+        // 3. Build seal_approve_dataset PTB
+        // id format: registry_object_id(32) ++ poll_id(32)
+        const registryBytes = fromHex(REGISTRY_ID)
+        const pollIdBytes = fromHex(poll.pollId)
+        const sealId = new Uint8Array([...registryBytes, ...pollIdBytes])
+
+        const tx = new Transaction()
+        tx.moveCall({
+          target: `${PACKAGE_ID}::seal_policy::seal_approve_dataset`,
+          arguments: [
+            tx.pure.vector('u8', Array.from(sealId)),
+            tx.object(REGISTRY_ID),
+          ],
+        })
+        const txBytes = await tx.build({ client: suiClient, onlyTransactionKind: true })
+
+        // 4. Decrypt via Seal key server
+        const sealClient = new SealClient({
+          suiClient,
+          serverConfigs: [{
+            objectId: '0xb012378c9f3799fb5b1a7083da74a4069e3c3f1c93de0b27212a5799ce1e1e98',
+            weight: 1,
+            aggregatorUrl: 'https://seal-aggregator-testnet.mystenlabs.com',
+          }],
+          verifyKeyServers: false,
+        })
+        decrypted = await sealClient.decrypt({ data: ciphertext, sessionKey, txBytes })
+      } catch {
+        // Not Seal-encrypted — show raw bytes
+        decrypted = ciphertext
+      }
+
+      let text: string | null = null
+      try {
+        const decoded = new TextDecoder('utf-8', { fatal: true }).decode(decrypted)
+        const printable = decoded.split('').filter(c => c.charCodeAt(0) >= 32 || c === '\n' || c === '\r' || c === '\t').length
+        if (printable / decoded.length > 0.9) text = decoded
+      } catch { /* binary */ }
+
+      setDataDecrypted({ raw: decrypted, text })
+    } catch (e: unknown) {
+      setDataDecryptError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setDataDecrypting(false)
+    }
+  }, [currentAccount, dataBlobId, network, poll.pollId, suiClient, signPersonalMessage])
 
   // ─── Vote flow ───
   const handleVote = useCallback(async () => {
@@ -516,6 +652,151 @@ export default function PollDetailPanel({ poll, onBack }: PollDetailPanelProps) 
               {isExpired && liveStatus === 1 && 'Voting period ended — awaiting finalization'}
             </p>
           </div>
+
+          {/* Finalize button — shown when expired + still Voting */}
+          {isExpired && liveStatus === 1 && !finalizeTxDigest && (
+            <div style={{ marginTop: 16 }}>
+              {finalizeError && (
+                <div style={{ padding: 10, borderRadius: 8, border: '1px solid rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.05)', marginBottom: 12 }}>
+                  <span style={{ fontSize: 12, color: '#EF4444' }}>{finalizeError}</span>
+                </div>
+              )}
+              <button
+                style={{ ...btnPrimary, background: C.accent, opacity: finalizing ? 0.5 : 1 }}
+                onClick={() => handleFinalize(false)}
+                disabled={finalizing}
+              >
+                {finalizing
+                  ? <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Finalizing…</>
+                  : <><Gavel size={16} /> Finalize Poll</>}
+              </button>
+              {currentAccount?.address === liveAdmin && (
+                <button
+                  style={{ ...btnSm, width: '100%', justifyContent: 'center', marginTop: 8, borderColor: 'rgba(245,158,11,0.3)', color: C.accent }}
+                  onClick={() => handleFinalize(true)}
+                  disabled={finalizing}
+                >
+                  <Gavel size={12} /> Admin Force-Finalize
+                </button>
+              )}
+              <p style={{ fontSize: 11, color: C.textMuted, textAlign: 'center', marginTop: 8 }}>
+                Anyone can finalize after deadline. Result: {liveYes >= liveThreshold ? 'Approved ✓' : 'Rejected ✗'}
+              </p>
+            </div>
+          )}
+
+          {/* Admin early finalize — shown when Voting + NOT expired + user is admin */}
+          {liveStatus === 1 && !isExpired && currentAccount?.address === liveAdmin && !finalizeTxDigest && (
+            <div style={{ marginTop: 16 }}>
+              {finalizeError && (
+                <div style={{ padding: 10, borderRadius: 8, border: '1px solid rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.05)', marginBottom: 12 }}>
+                  <span style={{ fontSize: 12, color: '#EF4444' }}>{finalizeError}</span>
+                </div>
+              )}
+              <button
+                style={{ ...btnSm, width: '100%', justifyContent: 'center', borderColor: 'rgba(245,158,11,0.3)', color: C.accent }}
+                onClick={() => handleFinalize(true)}
+                disabled={finalizing}
+              >
+                {finalizing
+                  ? <><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Finalizing…</>
+                  : <><Gavel size={12} /> Admin Early Finalize</>}
+              </button>
+            </div>
+          )}
+
+          {/* Finalize success */}
+          {finalizeTxDigest && (
+            <div style={{ marginTop: 16, padding: 12, borderRadius: 10, border: '1px solid rgba(16,185,129,0.3)', background: 'rgba(16,185,129,0.05)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <CheckCircle size={14} color={C.green} />
+                <span style={{ fontSize: 13, fontWeight: 700, color: C.green }}>Poll finalized!</span>
+              </div>
+              <a href={suiScanTxUrl(finalizeTxDigest, network)} target="_blank" rel="noopener noreferrer"
+                style={{ fontSize: 12, color: C.primary, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                View on SuiScan <ExternalLink size={10} />
+              </a>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ═══ Dataset Decrypt — shown when Approved ═══ */}
+      {liveStatus === 2 && dataBlobId && (
+        <div style={{ ...card, borderColor: 'rgba(16,185,129,0.3)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+            <Database size={16} color={C.green} />
+            <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 14, fontWeight: 600, color: C.heading }}>
+              Shared Dataset
+            </span>
+            <span style={{ fontSize: 11, color: C.green, fontWeight: 600, marginLeft: 'auto' }}>
+              Unlocked by Approval
+            </span>
+          </div>
+
+          <div style={{ padding: 10, borderRadius: 8, background: C.bg, marginBottom: 12, fontSize: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+              <span style={{ color: C.textMuted }}>Blob ID</span>
+              <code style={{ color: C.primary, fontFamily: "'Exo 2',monospace" }}>
+                {dataBlobId.length > 30 ? `${dataBlobId.slice(0, 16)}…${dataBlobId.slice(-8)}` : dataBlobId}
+              </code>
+            </div>
+            <a href={`${AGGREGATORS[network]}/v1/blobs/${dataBlobId}`} target="_blank" rel="noopener noreferrer"
+              style={{ fontSize: 11, color: C.green, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <ExternalLink size={10} /> View encrypted blob on Walrus
+            </a>
+          </div>
+
+          {dataDecryptError && (
+            <div style={{ padding: 10, borderRadius: 8, border: '1px solid rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.05)', marginBottom: 12 }}>
+              <span style={{ fontSize: 12, color: '#EF4444' }}>{dataDecryptError}</span>
+            </div>
+          )}
+
+          {!dataDecrypted && (
+            <button
+              style={{ ...btnPrimary, background: C.green, opacity: dataDecrypting ? 0.5 : 1 }}
+              onClick={handleDecryptDataset}
+              disabled={dataDecrypting}
+            >
+              {dataDecrypting
+                ? <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Decrypting dataset…</>
+                : <><Unlock size={16} /> Decrypt Dataset</>}
+            </button>
+          )}
+
+          {dataDecrypted && (
+            <div style={{ padding: 14, borderRadius: 12, border: `1px solid rgba(16,185,129,0.3)`, background: C.bg }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 700, color: C.green }}>
+                  <Unlock size={12} /> Decrypted
+                </span>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <span style={{ fontSize: 11, color: C.textMuted }}>
+                    {dataDecrypted.text ? 'Text' : 'Binary'} · {dataDecrypted.raw.length < 1024 ? `${dataDecrypted.raw.length} B` : `${(dataDecrypted.raw.length / 1024).toFixed(1)} KB`}
+                  </span>
+                  <button style={{ ...btnSm, padding: '2px 8px', fontSize: 10 }} onClick={() => {
+                    const blob = new Blob([dataDecrypted.raw.buffer as ArrayBuffer])
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url; a.download = `dataset_${poll.pollId.slice(0, 8)}`; a.click()
+                    URL.revokeObjectURL(url)
+                  }}>Download</button>
+                </div>
+              </div>
+              {dataDecrypted.text ? (
+                <pre style={{ fontSize: 12, color: C.text, fontFamily: "'Exo 2',monospace", whiteSpace: 'pre-wrap', wordBreak: 'break-all', margin: 0, maxHeight: 300, overflow: 'auto' }}>
+                  {dataDecrypted.text.slice(0, 5000)}{dataDecrypted.text.length > 5000 ? '\n…(truncated)' : ''}
+                </pre>
+              ) : (
+                <div style={{ fontSize: 12, color: C.textMuted }}>Binary data. Use Download to save.</div>
+              )}
+            </div>
+          )}
+
+          <p style={{ fontSize: 11, color: C.textMuted, textAlign: 'center', marginTop: 10 }}>
+            Poll approved → Seal key servers verify on-chain status → Dataset decrypted for everyone
+          </p>
         </div>
       )}
     </div>

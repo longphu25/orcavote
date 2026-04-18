@@ -159,11 +159,15 @@ export async function encryptRaw(
   ownerAddress: string,
   network: NetworkKey = 'testnet',
 ): Promise<Uint8Array> {
+  const { toHex } = await import('@mysten/sui/utils')
+  const { bcs } = await import('@mysten/sui/bcs')
   const sealClient = createSealClient(network)
+  // Identity = BCS-serialized owner address (private_seal pattern)
+  const id = toHex(bcs.Address.serialize(ownerAddress).toBytes())
   const { encryptedObject } = await sealClient.encrypt({
     threshold: DEFAULT_THRESHOLD,
     packageId: SEAL_PACKAGE_ID,
-    id: ownerAddress,
+    id,
     data: plaintext,
   })
   return encryptedObject
