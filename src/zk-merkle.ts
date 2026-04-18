@@ -67,7 +67,7 @@ export function initZkMerkleWasm(): Promise<WasmModule> {
 
   initPromise = new Promise<WasmModule>((resolve, reject) => {
     const base = import.meta.env.BASE_URL ?? '/'
-    const jsUrl = `${base}sui-zk-merkle/pkg/zk_merkle_wasm.js`
+    const jsUrl = new URL(`${base}sui-zk-merkle/pkg/zk_merkle_wasm.js`, location.origin).href
     const wasmUrl = `${base}sui-zk-merkle/wasm/zk-merkle.wasm`
 
     // Create a module script that imports the glue and exposes it globally
