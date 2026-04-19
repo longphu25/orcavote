@@ -23,7 +23,7 @@ export default defineConfig({
         main: path.resolve(__dirname, 'index.html'),
         orcavote: path.resolve(__dirname, 'orcavote.html'),
       },
-      external: ['gsap', 'motion'],
+      external: ['gsap', 'motion', 'animejs'],
       preserveEntrySignatures: 'exports-only',
       output: {
         globals: {

@@ -321,11 +321,17 @@ export default function PollDetailPanel({ poll, onBack }: PollDetailPanelProps) 
           verifyKeyServers: false,
         })
         decrypted = await sealClient.decrypt({ data: ciphertext, sessionKey, txBytes })
-        console.log('[OrcaVote] Seal decrypt success, decrypted size:', decrypted.length, 'ciphertext size:', ciphertext.length)
-        console.log('[OrcaVote] First 20 bytes decrypted:', Array.from(decrypted.slice(0, 20)))
-        console.log('[OrcaVote] First 20 bytes ciphertext:', Array.from(ciphertext.slice(0, 20)))
-        console.log('[OrcaVote] Same bytes?', decrypted.length === ciphertext.length && decrypted.every((b, i) => b === ciphertext[i]))
+        console.log('[OrcaVote] ✓ seal_approve_dataset decrypt success')
+        console.log('[OrcaVote]   decrypted size:', decrypted.length, 'ciphertext size:', ciphertext.length)
+        console.log('[OrcaVote]   First 20 decrypted:', Array.from(decrypted.slice(0, 20)))
+        console.log('[OrcaVote]   First 20 ciphertext:', Array.from(ciphertext.slice(0, 20)))
+        const same = decrypted.length === ciphertext.length && decrypted.every((b, i) => b === ciphertext[i])
+        console.log('[OrcaVote]   Same bytes?', same)
+        if (same) {
+          throw new Error('seal_approve_dataset: decrypt returned ciphertext unchanged')
+        }
       } catch (sealErr) {
+        console.error('[OrcaVote] ✗ seal_approve_dataset failed:', sealErr)
         // Seal decrypt failed — try data_asset pattern as fallback
         try {
           const encObj2 = EncryptedObject.parse(ciphertext)
@@ -357,7 +363,12 @@ export default function PollDetailPanel({ poll, onBack }: PollDetailPanelProps) 
             verifyKeyServers: false,
           })
           decrypted = await sealClient2.decrypt({ data: ciphertext, sessionKey: sessionKey2, txBytes: txBytes2 })
-        } catch {
+          console.log('[OrcaVote] ✓ seal_approve_data_asset fallback decrypt success')
+          console.log('[OrcaVote]   decrypted size:', decrypted.length)
+        } catch (fallbackErr) {
+          console.error('[OrcaVote] ✗ Both decrypt patterns failed')
+          console.error('[OrcaVote]   Primary error:', sealErr)
+          console.error('[OrcaVote]   Fallback error:', fallbackErr)
           throw new Error(`Seal decrypt failed: ${sealErr instanceof Error ? sealErr.message : String(sealErr)}`)
         }
       }
