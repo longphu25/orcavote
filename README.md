@@ -5,6 +5,10 @@
 <h1 align="center">OrcaVote</h1>
 
 <p align="center">
+  <em>Oracle + Access — governance-driven data access by vote</em>
+</p>
+
+<p align="center">
   <strong>Vote-to-unlock private data</strong><br/>
   Privacy-preserving governance protocol on Sui — ZK anonymous voting, Seal encryption, Walrus storage.
 </p>
