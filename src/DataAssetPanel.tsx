@@ -551,11 +551,6 @@ export default function DataAssetPanel() {
         {!loadingBlobs && walrusBlobs.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {walrusBlobs.map((b) => {
-            </div>
-          )
-          return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {activeBlobs.map((b) => {
               const isDecrypting = decrypting === b.objectId
               const data = decryptedData[b.objectId]
               const borderColor = data ? 'rgba(16,185,129,0.3)' : C.border
