@@ -4,6 +4,7 @@ import {
   useSuiClient,
   useSuiClientContext,
   useSignAndExecuteTransaction,
+  useSignPersonalMessage,
 } from '@mysten/dapp-kit'
 import {
   Vote,
@@ -96,6 +97,7 @@ export default function CreatePollPanel({
   const suiClient = useSuiClient()
   const ctx = useSuiClientContext()
   const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction()
+  const { mutateAsync: signPersonalMessage } = useSignPersonalMessage()
   const network = (ctx.network ?? 'testnet') as NetworkKey
 
   // Form state
@@ -219,23 +221,68 @@ export default function CreatePollPanel({
     setSealEncrypting(true)
     setSealError(null)
     try {
-      // 1. Fetch the original plaintext dataset from Walrus
-      setSealStep('Fetching original dataset…')
-      const { fetchBlobFromWalrus } = await import('./seal-walrus')
-      const plaintext = await fetchBlobFromWalrus(selectedBlobId, network)
+      const { fetchBlobFromWalrus, ORCAVOTE_PACKAGE_ID, ORCAVOTE_REGISTRY_ID, TESTNET_KEY_SERVERS } = await import('./seal-walrus')
+      const { EncryptedObject, SealClient, SessionKey } = await import('@mysten/seal')
+      const { Transaction } = await import('@mysten/sui/transactions')
+      const { fromHex } = await import('@mysten/sui/utils')
 
-      // 2. Seal encrypt with orcavote package + registry_id + poll_id
+      // 1. Fetch blob from Walrus
+      setSealStep('Fetching dataset…')
+      const rawBytes = await fetchBlobFromWalrus(selectedBlobId, network)
+
+      // 2. Check if blob is Seal-encrypted → decrypt to get plaintext first
+      let plaintext: Uint8Array
+      try {
+        const encObj = EncryptedObject.parse(rawBytes)
+        // It's Seal-encrypted — decrypt with seal_approve_data_asset (owner pattern)
+        setSealStep('Decrypting owner-encrypted blob…')
+
+        const sessionKey = await SessionKey.create({
+          address: currentAccount.address,
+          packageId: encObj.packageId,
+          ttlMin: 10,
+          suiClient,
+        })
+        const msg = sessionKey.getPersonalMessage()
+        const { signature } = await signPersonalMessage({ message: msg })
+        sessionKey.setPersonalMessageSignature(signature)
+
+        // Build seal_approve_data_asset PTB (id from encrypted object)
+        const tx = new Transaction()
+        tx.moveCall({
+          target: `${encObj.packageId}::seal_policy::seal_approve_data_asset`,
+          arguments: [
+            tx.pure.vector('u8', fromHex(encObj.id)),
+            tx.object(ORCAVOTE_REGISTRY_ID),
+          ],
+        })
+        const txBytes = await tx.build({ client: suiClient, onlyTransactionKind: true })
+
+        const sealClient = new SealClient({
+          suiClient,
+          serverConfigs: TESTNET_KEY_SERVERS.map(s => ({ ...s })),
+          verifyKeyServers: false,
+        })
+        plaintext = await sealClient.decrypt({ data: rawBytes, sessionKey, txBytes })
+        console.log('[CreatePoll] Decrypted owner blob:', plaintext.length, 'bytes (was', rawBytes.length, ')')
+      } catch {
+        // Not Seal-encrypted — use raw bytes as plaintext
+        plaintext = rawBytes
+        console.log('[CreatePoll] Blob is plaintext:', plaintext.length, 'bytes')
+      }
+
+      // 3. Seal encrypt with orcavote package + registry_id + poll_id
       setSealStep('Seal encrypting for poll…')
       const encrypted = await encryptForPoll(plaintext, pollId, network)
 
-      // 3. Upload encrypted blob to Walrus
+      // 4. Upload encrypted blob to Walrus
       setSealStep('Uploading encrypted blob…')
       const { blobId } = await uploadToWalrus(encrypted, network, 5)
       setSealBlobId(blobId)
 
-      // 4. Update on-chain data_blob_id
+      // 5. Update on-chain data_blob_id
       setSealStep('Updating on-chain reference…')
-      const sealIdentity = `${pollId}` // stored as reference
+      const sealIdentity = `${pollId}`
       const tx = setDataBlobTx(pollId, blobId, sealIdentity)
       await signAndExecute({ transaction: tx })
 
@@ -247,7 +294,7 @@ export default function CreatePollPanel({
       setSealEncrypting(false)
       setSealStep(null)
     }
-  }, [pollId, selectedBlobId, currentAccount, network, signAndExecute])
+  }, [pollId, selectedBlobId, currentAccount, network, signAndExecute, signPersonalMessage, suiClient])
 
   // Don't render if no merkle result yet
   if (!merkleResult) return null
