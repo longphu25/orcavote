@@ -1,44 +1,16 @@
 import { useState, useEffect } from 'react'
-import { useCurrentAccount, useSuiClient, useSuiClientContext } from '@mysten/dapp-kit'
+import { useSuiClientContext } from '@mysten/dapp-kit'
 import { X, Database, Check, Loader2, RefreshCw, ExternalLink } from 'lucide-react'
 import { C } from './theme'
 import { AGGREGATORS } from './seal-walrus'
 import type { NetworkKey } from './seal-walrus'
-
-export interface WalrusBlob {
-  objectId: string
-  blobId: string
-  size: number
-  registeredEpoch: number
-  certifiedEpoch: number | null
-  endEpoch: number
-  startEpoch: number
-  deletable: boolean
-  version: number
-}
+import { useWalrusBlobs } from './useWalrusBlobs'
+export type { WalrusBlob } from './useWalrusBlobs'
 
 interface Props {
   open: boolean
   onClose: () => void
-  onSelect: (blob: WalrusBlob) => void
-}
-
-/**
- * Walrus testnet package ID — resolved from the system object.
- * We use a known type prefix to query owned Blob objects.
- */
-const WALRUS_BLOB_TYPE_TESTNET = '0xd84704c17fc870b8764832c535aa6b11f21a95cd6f5bb38a9b07d2cf42220c66::blob::Blob'
-const WALRUS_BLOB_TYPE_MAINNET = '0xfdc88f7d7cf30afab2f82e8380d11ee8f70efb90e863d1de8616fae1bb09ea77::blob::Blob'
-
-function blobIdToBase64url(decimal: string): string {
-  let n = BigInt(decimal)
-  const bytes = new Uint8Array(32)
-  for (let i = 0; i < 32; i++) {
-    bytes[i] = Number(n & 0xffn)
-    n >>= 8n
-  }
-  const b64 = btoa(String.fromCharCode(...bytes))
-  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  onSelect: (blob: import('./useWalrusBlobs').WalrusBlob) => void
 }
 
 function formatSize(bytes: number): string {
@@ -49,64 +21,14 @@ function formatSize(bytes: number): string {
 }
 
 export default function BlobIdPicker({ open, onClose, onSelect }: Props) {
-  const currentAccount = useCurrentAccount()
-  const suiClient = useSuiClient()
   const ctx = useSuiClientContext()
   const network = (ctx.network ?? 'testnet') as NetworkKey
-  const [blobs, setBlobs] = useState<WalrusBlob[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { activeBlobs, loading, error, fetchBlobs } = useWalrusBlobs(false)
   const [selected, setSelected] = useState<string | null>(null)
 
-  const fetchBlobs = async () => {
-    if (!currentAccount) return
-    setLoading(true)
-    setError(null)
-    try {
-      // Try testnet type first, then mainnet
-      let allData: WalrusBlob[] = []
-      for (const blobType of [WALRUS_BLOB_TYPE_TESTNET, WALRUS_BLOB_TYPE_MAINNET]) {
-        try {
-          const res = await suiClient.getOwnedObjects({
-            owner: currentAccount.address,
-            filter: { StructType: blobType },
-            options: { showContent: true, showType: true },
-            limit: 50,
-          })
-          for (const item of res.data) {
-            const obj = item.data
-            if (!obj?.content || obj.content.dataType !== 'moveObject') continue
-            const fields = obj.content.fields as Record<string, unknown>
-            const storage = (fields.storage as Record<string, unknown>)?.fields as Record<string, unknown> | undefined
-            allData.push({
-              objectId: obj.objectId,
-              blobId: blobIdToBase64url(String(fields.blob_id ?? '0')),
-              size: Number(fields.size ?? 0),
-              registeredEpoch: Number(fields.registered_epoch ?? 0),
-              certifiedEpoch: fields.certified_epoch != null ? Number(fields.certified_epoch) : null,
-              startEpoch: Number(storage?.start_epoch ?? 0),
-              endEpoch: Number(storage?.end_epoch ?? 0),
-              deletable: Boolean(fields.deletable),
-              version: Number(obj.version ?? 0),
-            })
-          }
-          if (allData.length > 0) break // found blobs, stop trying other types
-        } catch {
-          // type not found on this network, try next
-        }
-      }
-      setBlobs(allData)
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setLoading(false)
-    }
-  }
-
   useEffect(() => {
-    if (open && currentAccount) fetchBlobs()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, currentAccount?.address])
+    if (open) fetchBlobs()
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!open) return null
 
@@ -129,8 +51,11 @@ export default function BlobIdPicker({ open, onClose, onSelect }: Props) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Database size={16} color={C.accent} />
             <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 14, fontWeight: 600, color: C.heading }}>
-              Walrus Blobs (Owned by Wallet)
+              My Walrus Blobs
             </span>
+            {activeBlobs.length > 0 && (
+              <span style={{ fontSize: 11, color: C.textMuted }}>({activeBlobs.length})</span>
+            )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <button onClick={fetchBlobs} disabled={loading} style={{ background: 'none', border: 'none', color: C.textMuted, cursor: 'pointer', display: 'flex', padding: 4 }} aria-label="Refresh">
@@ -157,87 +82,68 @@ export default function BlobIdPicker({ open, onClose, onSelect }: Props) {
             </div>
           )}
 
-          {!loading && blobs.length === 0 && !error && (
+          {!loading && activeBlobs.length === 0 && !error && (
             <div style={{ textAlign: 'center', padding: 32 }}>
               <Database size={32} color={C.textMuted} style={{ marginBottom: 12 }} />
-              <p style={{ fontSize: 14, color: C.textMuted, margin: 0 }}>No Walrus Blob objects found in this wallet.</p>
-              <p style={{ fontSize: 12, color: C.textMuted, margin: '8px 0 0' }}>
-                Upload data via Walrus CLI or SDK to create owned Blob objects.
-              </p>
+              <p style={{ fontSize: 14, color: C.textMuted, margin: 0 }}>No Walrus Blob objects found.</p>
             </div>
           )}
 
-          {!loading && blobs.length > 0 && (() => {
-            const currentEpoch = Math.max(...blobs.map(b => b.registeredEpoch))
-            const activeBlobs = blobs
-              .filter(b => !(b.endEpoch > 0 && b.endEpoch <= currentEpoch))
-              .sort((a, b) => b.version - a.version)
-
-            if (activeBlobs.length === 0) return (
-              <div style={{ textAlign: 'center', padding: 32 }}>
-                <Database size={32} color={C.textMuted} style={{ marginBottom: 12 }} />
-                <p style={{ fontSize: 14, color: C.textMuted, margin: 0 }}>All blobs have expired.</p>
-              </div>
-            )
-
-            return (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {activeBlobs.map((b) => {
-                  const isSelected = selected === b.objectId
-                  return (
-                    <div
-                      key={b.objectId}
-                      onClick={() => setSelected(b.objectId)}
+          {!loading && activeBlobs.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {activeBlobs.map((b) => {
+                const isSelected = selected === b.objectId
+                return (
+                  <div
+                    key={b.objectId}
+                    onClick={() => setSelected(b.objectId)}
+                    style={{
+                      padding: 14, borderRadius: 12, cursor: 'pointer',
+                      border: `1px solid ${isSelected ? C.primary : C.border}`,
+                      background: isSelected ? 'rgba(59,130,246,0.08)' : C.bg,
+                      transition: 'border-color 0.15s',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <code style={{ fontSize: 12, color: C.primary, fontWeight: 700, fontFamily: "'Exo 2',monospace" }}>
+                        {b.blobId.length > 24 ? `${b.blobId.slice(0, 12)}…${b.blobId.slice(-8)}` : b.blobId}
+                      </code>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {b.endEpoch > 0 && (
+                          <span style={{ fontSize: 10, fontWeight: 600, color: C.green, padding: '2px 6px', borderRadius: 4, background: 'rgba(16,185,129,0.1)' }}>ACTIVE</span>
+                        )}
+                        {isSelected && <Check size={16} color={C.primary} />}
+                      </div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px', marginBottom: 8, fontSize: 11, color: C.textMuted }}>
+                      <span>Size: {formatSize(b.size)}</span>
+                      <span>{b.deletable ? '🗑 Deletable' : '🔒 Permanent'}</span>
+                      <span>Registered: epoch {b.registeredEpoch}</span>
+                      <span>Expires: epoch {b.endEpoch}</span>
+                    </div>
+                    <a
+                      href={`${AGGREGATORS[network]}/v1/blobs/${b.blobId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
                       style={{
-                        padding: 14, borderRadius: 12, cursor: 'pointer',
-                        border: `1px solid ${isSelected ? C.primary : C.border}`,
-                        background: isSelected ? 'rgba(59,130,246,0.08)' : C.bg,
-                        transition: 'border-color 0.15s',
+                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                        fontSize: 11, fontWeight: 600, color: C.green, textDecoration: 'none',
+                        padding: '4px 8px', borderRadius: 6,
+                        border: '1px solid rgba(16,185,129,0.3)',
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                        <code style={{ fontSize: 12, color: C.primary, fontWeight: 700, fontFamily: "'Exo 2',monospace" }}>
-                          {b.blobId.length > 24 ? `${b.blobId.slice(0, 12)}…${b.blobId.slice(-8)}` : b.blobId}
-                        </code>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          {b.endEpoch > 0 && (
-                            <span style={{ fontSize: 10, fontWeight: 600, color: C.green, padding: '2px 6px', borderRadius: 4, background: 'rgba(16,185,129,0.1)' }}>ACTIVE</span>
-                          )}
-                          {isSelected && <Check size={16} color={C.primary} />}
-                        </div>
-                      </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px', marginBottom: 8, fontSize: 11, color: C.textMuted }}>
-                        <span>Size: {formatSize(b.size)}</span>
-                        <span>{b.deletable ? '🗑 Deletable' : '🔒 Permanent'}</span>
-                        <span>Registered: epoch {b.registeredEpoch}</span>
-                        <span>Expires: epoch {b.endEpoch}</span>
-                        <span>Storage: epoch {b.startEpoch}→{b.endEpoch}</span>
-                        <span>Obj: {b.objectId.slice(0, 10)}…{b.objectId.slice(-4)}</span>
-                      </div>
-                      <a
-                        href={`${AGGREGATORS[network]}/v1/blobs/${b.blobId}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 4,
-                          fontSize: 11, fontWeight: 600, color: C.green, textDecoration: 'none',
-                          padding: '4px 8px', borderRadius: 6,
-                          border: '1px solid rgba(16,185,129,0.3)',
-                        }}
-                      >
-                        <ExternalLink size={10} /> View on Walrus
-                      </a>
-                    </div>
-                  )
-                })}
-              </div>
-            )
-          })()}
+                      <ExternalLink size={10} /> View on Walrus
+                    </a>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
 
         {/* Footer */}
-        {blobs.length > 0 && (
+        {activeBlobs.length > 0 && (
           <div style={{ padding: '12px 16px', borderTop: `1px solid ${C.border}`, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
             <button onClick={onClose} style={{
               padding: '8px 16px', borderRadius: 8, border: `1px solid ${C.border}`,
@@ -247,7 +153,7 @@ export default function BlobIdPicker({ open, onClose, onSelect }: Props) {
             <button
               disabled={!selected}
               onClick={() => {
-                const blob = blobs.find((b) => b.objectId === selected)
+                const blob = activeBlobs.find((b) => b.objectId === selected)
                 if (blob) { onSelect(blob); onClose() }
               }}
               style={{

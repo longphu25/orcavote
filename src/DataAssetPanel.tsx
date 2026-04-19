@@ -26,7 +26,8 @@ import type { NetworkKey } from './seal-walrus'
 import { SessionKey, EncryptedObject, SealClient } from '@mysten/seal'
 import { Transaction } from '@mysten/sui/transactions'
 import { fromHex } from '@mysten/sui/utils'
-import type { WalrusBlob } from './BlobIdPicker'
+import type { WalrusBlob } from './useWalrusBlobs'
+import { useWalrusBlobs } from './useWalrusBlobs'
 import { walrus } from '@mysten/walrus'
 import walrusWasmUrl from '@mysten/walrus-wasm/web/walrus_wasm_bg.wasm?url'
 import { SuiGrpcClient } from '@mysten/sui/grpc'
@@ -35,18 +36,6 @@ import { PACKAGE_ID, REGISTRY_ID } from './poll-transactions'
 /* ─── constants ─── */
 const WALRUS_BLOB_TYPE_TESTNET = '0xd84704c17fc870b8764832c535aa6b11f21a95cd6f5bb38a9b07d2cf42220c66::blob::Blob'
 const WALRUS_BLOB_TYPE_MAINNET = '0xfdc88f7d7cf30afab2f82e8380d11ee8f70efb90e863d1de8616fae1bb09ea77::blob::Blob'
-
-/** Convert u256 decimal blob_id from on-chain to base64url for Walrus aggregator */
-function blobIdToBase64url(decimal: string): string {
-  let n = BigInt(decimal)
-  const bytes = new Uint8Array(32)
-  for (let i = 0; i < 32; i++) {
-    bytes[i] = Number(n & 0xffn)
-    n >>= 8n
-  }
-  const b64 = btoa(String.fromCharCode(...bytes))
-  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-}
 
 /* ─── styles ─── */
 const card = {
@@ -127,10 +116,8 @@ export default function DataAssetPanel() {
   const [uploaded, setUploaded] = useState<UploadedAsset[]>([])
   const fileRef = useRef<HTMLInputElement>(null)
 
-  // Wallet blobs state
-  const [walrusBlobs, setWalrusBlobs] = useState<WalrusBlob[]>([])
-  const [loadingBlobs, setLoadingBlobs] = useState(false)
-  const [blobError, setBlobError] = useState<string | null>(null)
+  // Wallet blobs (shared hook — paginated, sorted newest-first)
+  const { activeBlobs: walrusBlobs, loading: loadingBlobs, error: blobError, fetchBlobs: fetchWalrusBlobs } = useWalrusBlobs()
 
   // Decrypt state
   const [decrypting, setDecrypting] = useState<string | null>(null)
@@ -206,61 +193,7 @@ export default function DataAssetPanel() {
       setUploading(false)
       setUploadStep(null)
     }
-  }, [fileBytes, file, name, currentAccount, network, signAndExecute])
-
-  // Fetch wallet's owned Walrus Blob objects (paginated)
-  const fetchWalrusBlobs = useCallback(async () => {
-    if (!currentAccount) return
-    setLoadingBlobs(true)
-    setBlobError(null)
-    try {
-      let allBlobs: WalrusBlob[] = []
-      for (const blobType of [WALRUS_BLOB_TYPE_TESTNET, WALRUS_BLOB_TYPE_MAINNET]) {
-        try {
-          let cursor: string | null | undefined = null
-          let hasNext = true
-          while (hasNext) {
-            const res = await suiClient.getOwnedObjects({
-              owner: currentAccount.address,
-              filter: { StructType: blobType },
-              options: { showContent: true, showType: true },
-              limit: 50,
-              ...(cursor ? { cursor } : {}),
-            })
-            for (const item of res.data) {
-              const obj = item.data
-              if (!obj?.content || obj.content.dataType !== 'moveObject') continue
-              const fields = obj.content.fields as Record<string, unknown>
-              const storage = (fields.storage as Record<string, unknown>)?.fields as Record<string, unknown> | undefined
-              allBlobs.push({
-                objectId: obj.objectId,
-                blobId: blobIdToBase64url(String(fields.blob_id ?? '0')),
-                size: Number(fields.size ?? 0),
-                registeredEpoch: Number(fields.registered_epoch ?? 0),
-                certifiedEpoch: fields.certified_epoch != null ? Number(fields.certified_epoch) : null,
-                startEpoch: Number(storage?.start_epoch ?? 0),
-                endEpoch: Number(storage?.end_epoch ?? 0),
-                deletable: Boolean(fields.deletable),
-                version: Number(obj.version ?? 0),
-              })
-            }
-            hasNext = res.hasNextPage
-            cursor = res.nextCursor
-          }
-          if (allBlobs.length > 0) break
-        } catch { /* type not on this network */ }
-      }
-      setWalrusBlobs(allBlobs)
-    } catch (e: unknown) {
-      setBlobError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setLoadingBlobs(false)
-    }
-  }, [currentAccount, suiClient])
-
-  useEffect(() => {
-    if (currentAccount) fetchWalrusBlobs()
-  }, [currentAccount?.address]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fileBytes, file, name, currentAccount, network, signAndExecute, fetchWalrusBlobs])
 
   // Decrypt a blob: fetch from Walrus → try Seal decrypt → show content
   const handleDecrypt = useCallback(async (blobId: string, key?: string) => {
@@ -615,16 +548,9 @@ export default function DataAssetPanel() {
           </div>
         )}
 
-        {!loadingBlobs && walrusBlobs.length > 0 && (() => {
-          const currentEpoch = Math.max(...walrusBlobs.map(b => b.registeredEpoch))
-          const activeBlobs = walrusBlobs
-            .filter(b => !(b.endEpoch > 0 && b.endEpoch <= currentEpoch))
-            .sort((a, b) => b.registeredEpoch - a.registeredEpoch || b.version - a.version)
-            .sort((a, b) => b.registeredEpoch - a.registeredEpoch)
-          if (activeBlobs.length === 0) return (
-            <div style={{ textAlign: 'center', padding: 24 }}>
-              <Database size={24} color={C.textMuted} style={{ marginBottom: 8 }} />
-              <p style={{ fontSize: 13, color: C.textMuted, margin: 0 }}>All blobs have expired.</p>
+        {!loadingBlobs && walrusBlobs.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {walrusBlobs.map((b) => {
             </div>
           )
           return (
@@ -695,8 +621,7 @@ export default function DataAssetPanel() {
               )
             })}
           </div>
-          )
-        })()}
+        )}
       </div>
 
       <div style={{ fontSize: 11, color: C.textMuted, textAlign: 'center', padding: '8px 0' }}>
