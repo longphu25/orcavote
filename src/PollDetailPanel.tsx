@@ -520,14 +520,13 @@ export default function PollDetailPanel({ poll, onBack }: PollDetailPanelProps) 
 
       const suiProof = formatForSui(proofResult)
 
-      // 5. Submit vote on-chain
+      // 5. Submit vote on-chain (choice is encoded in signal_hash inside the proof)
       setStep('submitting')
       const voteTx = submitVoteTx({
         pollId: poll.pollId,
         proofBytes: suiProof.proofBytes,
         publicInputsBytes: suiProof.publicInputsBytes,
         nullifier: suiProof.nullifier,
-        choice,
       })
 
       await signAndExecute(

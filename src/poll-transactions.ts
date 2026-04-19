@@ -6,8 +6,8 @@ import { loadVkBytes } from './zk-prove'
 
 // ─── Contract constants ───
 
-export const PACKAGE_ID = '0x115063746a65dce6e68997b5116af16188a164f724de111d87f9be6e085225f0'
-export const REGISTRY_ID = '0x04d714c372105c024a7b99d2d3fb9d8e79f159e335894c158dae11668b9a233e'
+export const PACKAGE_ID = '0xc1ce937ce57cae994b643a320c092953d41298d924ca6f37ec0e100ff2abdd17'
+export const REGISTRY_ID = '0xa19f49c2ec3d5fb158680bf8ca62c661dc1e87960aec421bdb551efb4d5e1b6d'
 
 // ─── Helpers ───
 
@@ -197,11 +197,11 @@ export interface SubmitVoteParams {
   proofBytes: Uint8Array
   publicInputsBytes: Uint8Array
   nullifier: Uint8Array
-  choice: number // 0 = NO, 1 = YES
 }
 
 /**
  * Build transaction for zk_vote::submit_vote.
+ * Choice is encoded inside the ZK proof (signal_hash) — NOT passed as parameter.
  * Requires Clock (0x6) for deadline check.
  */
 export function submitVoteTx(params: SubmitVoteParams): Transaction {
@@ -215,7 +215,6 @@ export function submitVoteTx(params: SubmitVoteParams): Transaction {
       tx.pure.vector('u8', Array.from(params.proofBytes)),
       tx.pure.vector('u8', Array.from(params.publicInputsBytes)),
       tx.pure.vector('u8', Array.from(params.nullifier)),
-      tx.pure.u8(params.choice),
       tx.object('0x6'), // Clock
     ],
   })

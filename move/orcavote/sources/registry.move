@@ -120,7 +120,6 @@ public struct VoterRegistered has copy, drop {
 public struct VoteCast has copy, drop {
     poll_id: ID,
     nullifier: vector<u8>,
-    choice: u8,
     yes_count: u64,
     no_count: u64,
 }
@@ -299,8 +298,8 @@ public(package) fun emit_voter_registered(poll_id: ID, voter: address, walrus_bl
     sui::event::emit(VoterRegistered { poll_id, voter, walrus_blob_id });
 }
 
-public(package) fun emit_vote_cast(poll_id: ID, nullifier: vector<u8>, choice: u8, yes_count: u64, no_count: u64) {
-    sui::event::emit(VoteCast { poll_id, nullifier, choice, yes_count, no_count });
+public(package) fun emit_vote_cast(poll_id: ID, nullifier: vector<u8>, yes_count: u64, no_count: u64) {
+    sui::event::emit(VoteCast { poll_id, nullifier, yes_count, no_count });
 }
 
 public(package) fun emit_poll_finalized(poll_id: ID, status: u8, yes_count: u64, no_count: u64) {
