@@ -1,74 +1,165 @@
-# OrcaVote
+<p align="center">
+  <img src="public/favicon.svg" width="80" alt="OrcaVote" />
+</p>
 
-**Vote-to-unlock private data** — A protocol on Sui for governance-driven release of encrypted data using ZK anonymous voting, Seal encryption, and Walrus storage.
+<h1 align="center">OrcaVote</h1>
 
-## Deployed Contracts (Testnet)
+<p align="center">
+  <strong>Vote-to-unlock private data</strong><br/>
+  Privacy-preserving governance protocol on Sui — ZK anonymous voting, Seal encryption, Walrus storage.
+</p>
 
-| Item | ID |
-|------|----|
-| **Package ID** | `0x115063746a65dce6e68997b5116af16188a164f724de111d87f9be6e085225f0` |
-| **Registry** (shared) | `0x04d714c372105c024a7b99d2d3fb9d8e79f159e335894c158dae11668b9a233e` |
-| **AdminCap** (owned) | `0x5f479fc0740adce56aaed5e2daa1480c15bbe54202de2f45b623eeb9bbf02877` |
-| **UpgradeCap** | `0xe8de9984ab77446dc82d7ec7a307715793b93847fe3f79a04b19959e39ae595d` |
-| **Network** | Sui Testnet |
-| **Deployer** | `0xdfdd6484f7f94c80daefbfee06728f60236fde6bc229e30453306166a6b5691e` |
-| **Tx Digest** | `FWGbcCoM3W28SNY597XwDPBLHkUjLwoB4a1fj8aNNh7M` |
+<p align="center">
+  <a href="https://suiscan.xyz/testnet/object/0x115063746a65dce6e68997b5116af16188a164f724de111d87f9be6e085225f0">
+    <img src="https://img.shields.io/badge/Sui-Testnet-4DA2FF?style=flat-square&logo=data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxMiIgY3k9IjEyIiByPSIxMCIgZmlsbD0id2hpdGUiLz48L3N2Zz4=" alt="Sui Testnet" />
+  </a>
+  <img src="https://img.shields.io/badge/ZK-Groth16%20BN254-10B981?style=flat-square" alt="ZK Groth16" />
+  <img src="https://img.shields.io/badge/Encryption-Seal-F59E0B?style=flat-square" alt="Seal" />
+  <img src="https://img.shields.io/badge/Storage-Walrus-3B82F6?style=flat-square" alt="Walrus" />
+</p>
 
-Explorer: [View on SuiScan](https://suiscan.xyz/testnet/object/0x115063746a65dce6e68997b5116af16188a164f724de111d87f9be6e085225f0)
+---
 
-> **Note:** Poll creation is permissionless — anyone can create a poll. The poll creator becomes the admin of that poll (register voters, start voting, force-finalize).
-
-## Seal Policies (Unified)
-
-All Seal encryption/decryption uses the **orcavote package** — no external Seal demo packages.
-
-| Policy | Function | Who can decrypt? | Seal ID format |
-|--------|----------|-------------------|----------------|
-| Data Asset | `seal_approve_data_asset` | Owner only | `registry_id(32) ++ owner_address(32)` |
-| Dataset (post-vote) | `seal_approve_dataset` | Anyone (after Approved) | `registry_id(32) ++ poll_id(32)` |
-| Identity Blob | `seal_approve_identity` | Registered voter only | `registry_id(32) ++ poll_id(32)` |
-
-## Move Modules
+## How It Works
 
 ```
-move/orcavote/sources/
-├── registry.move      # Core types, Registry singleton, AdminCap, init
-├── data_asset.move    # Register encrypted datasets (Walrus + Seal)
-├── governance.move    # Poll lifecycle, voter registration, finalize, set_data_blob
-├── zk_vote.move       # Groth16 BN254 proof verification, nullifier, tally
-└── seal_policy.move   # Seal key-server approval (3 policies)
+┌─────────────────────────────────────────────────────────────────┐
+│  ① Encrypt dataset → Upload to Walrus                          │
+│  ② Build Merkle tree → Register voters on-chain                │
+│  ③ Voters cast anonymous ballots (ZK proof in browser)         │
+│  ④ Threshold reached → Poll Approved → Dataset auto-unlocked   │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-See [docs/voting-flow.md](docs/voting-flow.md) for the end-to-end flow documentation.
+Data stays encrypted until a group collectively votes to release it. No single party can bypass governance. No one knows who voted what.
 
-## ZK Circuit
+---
 
-Semaphore-style Groth16 circuit on BN254 — Poseidon Merkle membership + nullifier + signal.
+## Deployed Contracts
+
+> **Network:** Sui Testnet
+
+| Object | ID |
+|--------|----|
+| Package | [`0x1150…25f0`](https://suiscan.xyz/testnet/object/0x115063746a65dce6e68997b5116af16188a164f724de111d87f9be6e085225f0) |
+| Registry (shared) | `0x04d714c372105c024a7b99d2d3fb9d8e79f159e335894c158dae11668b9a233e` |
+| Tx Digest | [`FWGbcCoM3W28SNY597XwDPBLHkUjLwoB4a1fj8aNNh7M`](https://suiscan.xyz/testnet/tx/FWGbcCoM3W28SNY597XwDPBLHkUjLwoB4a1fj8aNNh7M) |
+
+Poll creation is permissionless — anyone can create a poll and becomes its admin.
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Blockchain | **Sui** (Move smart contracts) |
+| ZK Proof | **Groth16** on BN254 (Circom + snarkjs) |
+| Hash Function | **Poseidon** (BN254-friendly, circuit + on-chain) |
+| Encryption | **Seal** (threshold encryption, on-chain access control) |
+| Storage | **Walrus** (decentralized blob store) |
+| Frontend | React + Vite + `@mysten/dapp-kit` |
+
+---
+
+## Architecture
 
 ```
-circuits/
-├── orcavote.circom        # Circuit source (2911 constraints, tree depth 10)
-├── Makefile               # compile → setup → export pipeline
-└── export-vk-bytes.mjs    # Convert snarkjs VK → Arkworks vk_bytes
+Off-chain (Browser)                    On-chain (Sui Move)
+───────────────────                    ────────────────────
 
-public/zk-circuit/         # Browser-ready artifacts (shipped with app)
-├── circuit.wasm           # Witness calculator (~2 MB)
-├── circuit_final.zkey     # Proving key (~1.7 MB)
-├── verification_key.json  # Human-readable VK
-└── vk_bytes.bin           # Arkworks VK for create_poll (392 bytes)
+WASM: Poseidon Merkle tree    ───→     Registry (shared singleton)
+      + identity generation              ├── polls
+                                         ├── voter_refs
+Seal SDK: encrypt/decrypt     ───→       ├── data_assets
+  (orcavote package)                     └── poll_voters
+
+Walrus: encrypted blob store           Modules:
+                                         ├── governance    create / finalize polls
+snarkjs: Groth16 prover      ───→       ├── zk_vote       verify proof, tally
+  (~3s in browser)                       ├── seal_policy   3 access control policies
+                                         └── data_asset    dataset registration
 ```
 
-### Build circuit
+---
 
-```bash
-cd circuits
-npm install
-make all
+## Seal Policies
+
+All encryption uses the **orcavote package** — no external dependencies.
+
+| Policy | Who can decrypt | Seal ID |
+|--------|----------------|---------|
+| `seal_approve_data_asset` | Owner only | `registry(32) + owner(32)` |
+| `seal_approve_dataset` | Anyone (after Approved) | `registry(32) + poll_id(32)` |
+| `seal_approve_identity` | Registered voter only | `registry(32) + poll_id(32)` |
+
+---
+
+## Privacy Model
+
+| On-chain (visible) | Off-chain (hidden) |
+|--------------------|--------------------|
+| Who submitted a vote tx | What they voted (YES/NO) |
+| Nullifier hash | Which nullifier → which voter |
+| Total YES / NO count | Individual choices |
+| Vote timestamp | Identity secret |
+
+ZK proof guarantees: voter is a valid member, hasn't voted before, and committed to a specific choice — without revealing which member they are.
+
+---
+
+## Project Structure
+
 ```
+orcavote/
+├── move/orcavote/sources/       Move smart contracts (5 modules)
+│   ├── registry.move            Core types, shared singleton
+│   ├── governance.move          Poll lifecycle, voter registration
+│   ├── zk_vote.move             Groth16 verification, nullifier, tally
+│   ├── seal_policy.move         3 Seal approval policies
+│   └── data_asset.move          Dataset registration
+│
+├── circuits/                    ZK circuit (Circom)
+│   ├── orcavote.circom          Semaphore-style, 2911 constraints
+│   └── Makefile                 Build pipeline
+│
+├── public/zk-circuit/           Browser artifacts
+│   ├── circuit.wasm             Witness calculator (~2 MB)
+│   ├── circuit_final.zkey       Proving key (~1.7 MB)
+│   └── vk_bytes.bin             Arkworks VK (392 B)
+│
+├── src/                         React frontend
+│   ├── OrcaVoteApp.tsx          Main app (3 tabs)
+│   ├── DataAssetPanel.tsx       Upload + encrypt + decrypt
+│   ├── ZkMerklePanel.tsx        Build tree + upload identities
+│   ├── CreatePollPanel.tsx      Create poll + Seal encrypt dataset
+│   ├── PollListPanel.tsx        Browse polls
+│   ├── PollDetailPanel.tsx      Vote + finalize + decrypt
+│   ├── seal-walrus.ts           Seal + Walrus operations
+│   ├── zk-prove.ts              Browser ZK proof generation
+│   └── poll-transactions.ts     Move transaction builders
+│
+├── docs/                        Documentation
+│   ├── PRD.md                   Product requirements
+│   ├── voting-flow.md           End-to-end flow
+│   ├── ui-guide.md              UI walkthrough
+│   ├── zk-proof.md              ZK proof system
+│   ├── on-chain.md              On-chain architecture
+│   └── bug-log.md               11 bugs documented
+│
+└── scripts/                     Debug utilities
+```
+
+---
 
 ## Quick Start
 
-### Deploy contract
+### Prerequisites
+
+- [Sui CLI](https://docs.sui.io/build/install) + testnet wallet with SUI
+- [Bun](https://bun.sh/) (or Node.js 18+)
+
+### Deploy Contract
 
 ```bash
 cd move/orcavote
@@ -76,27 +167,37 @@ sui move build
 sui client publish --gas-budget 500000000
 ```
 
-### Frontend
+### Run Frontend
 
 ```bash
 bun install
-bun run dev
+bun run dev          # http://localhost:5173
 ```
 
-## Architecture
+### Build ZK Circuit (optional — artifacts included)
 
+```bash
+cd circuits
+npm install
+make all             # compile → trusted setup → export → copy to public/
 ```
-Off-chain                          On-chain (Sui)
-─────────                          ──────────────
-WASM: gen Merkle tree    ────→     Registry (shared singleton)
-      + identities                   ├── polls: Table<ID, Poll>
-                                     ├── data_assets: Table<ID, DataAsset>
-Seal SDK: encrypt        ────→      ├── voter_refs: Table<Key, VoterIdentityRef>
-  (orcavote package)                 └── poll_voters: Table<ID, vector<address>>
 
-Walrus: store ciphertext            Modules:
-                                     ├── governance   → create poll, register voters, finalize
-Circom + Groth16:        ────→       ├── zk_vote      → verify proof, update tally
-  browser prover                     ├── seal_policy   → 3 Seal approval policies
-                                     └── data_asset    → register datasets
-```
+---
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [PRD](docs/PRD.md) | Product requirements + implementation status |
+| [Voting Flow](docs/voting-flow.md) | End-to-end flow with diagrams |
+| [UI Guide](docs/ui-guide.md) | Step-by-step UI walkthrough |
+| [ZK Proof](docs/zk-proof.md) | Circuit architecture, inputs, encoding |
+| [On-Chain](docs/on-chain.md) | Move modules, error codes, events |
+| [Bug Log](docs/bug-log.md) | 11 bugs with root cause + fix |
+| [Presentation](docs/presentation-script.md) | 10-15 min demo script |
+
+---
+
+## License
+
+MIT
