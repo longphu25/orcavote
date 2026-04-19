@@ -36,7 +36,7 @@ import {
 } from './poll-transactions'
 import type { PollInfo } from './poll-transactions'
 import type { NetworkKey } from './seal-walrus'
-import { fetchBlobFromWalrus, AGGREGATORS } from './seal-walrus'
+import { fetchBlobFromWalrus, AGGREGATORS, ORCAVOTE_PACKAGE_ID, ORCAVOTE_REGISTRY_ID, TESTNET_KEY_SERVERS } from './seal-walrus'
 import { SessionKey, EncryptedObject, SealClient } from '@mysten/seal'
 import { Transaction } from '@mysten/sui/transactions'
 import { fromHex } from '@mysten/sui/utils'
@@ -294,7 +294,7 @@ export default function PollDetailPanel({ poll, onBack }: PollDetailPanelProps) 
         // 2. Create session key
         const sessionKey = await SessionKey.create({
           address: currentAccount.address,
-          packageId: PACKAGE_ID,
+          packageId: ORCAVOTE_PACKAGE_ID,
           ttlMin: 10,
           suiClient,
         })
@@ -304,16 +304,16 @@ export default function PollDetailPanel({ poll, onBack }: PollDetailPanelProps) 
 
         // 3. Build seal_approve_dataset PTB
         // id format: registry_object_id(32) ++ poll_id(32)
-        const registryBytes = fromHex(REGISTRY_ID)
+        const registryBytes = fromHex(ORCAVOTE_REGISTRY_ID)
         const pollIdBytes = fromHex(poll.pollId)
         const sealId = new Uint8Array([...registryBytes, ...pollIdBytes])
 
         const tx = new Transaction()
         tx.moveCall({
-          target: `${PACKAGE_ID}::seal_policy::seal_approve_dataset`,
+          target: `${ORCAVOTE_PACKAGE_ID}::seal_policy::seal_approve_dataset`,
           arguments: [
             tx.pure.vector('u8', Array.from(sealId)),
-            tx.object(REGISTRY_ID),
+            tx.object(ORCAVOTE_REGISTRY_ID),
           ],
         })
         const txBytes = await tx.build({ client: suiClient, onlyTransactionKind: true })
@@ -321,11 +321,7 @@ export default function PollDetailPanel({ poll, onBack }: PollDetailPanelProps) 
         // 4. Decrypt via Seal key server
         const sealClient = new SealClient({
           suiClient,
-          serverConfigs: [{
-            objectId: '0xb012378c9f3799fb5b1a7083da74a4069e3c3f1c93de0b27212a5799ce1e1e98',
-            weight: 1,
-            aggregatorUrl: 'https://seal-aggregator-testnet.mystenlabs.com',
-          }],
+          serverConfigs: TESTNET_KEY_SERVERS.map(s => ({ ...s })),
           verifyKeyServers: false,
         })
         decrypted = await sealClient.decrypt({ data: ciphertext, sessionKey, txBytes })

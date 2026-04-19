@@ -1,11 +1,13 @@
 /// Seal Policy — entry functions for Seal key-server dry-run approval.
 ///
-/// Two policies:
-///   1. Identity blob: voter can decrypt their own identity.json
-///   2. Dataset blob:  anyone can decrypt dataset after poll is Approved
+/// Three policies:
+///   1. Identity blob:  voter can decrypt their own identity.json
+///   2. Dataset blob:   anyone can decrypt dataset after poll is Approved
+///   3. Data asset:     owner can decrypt their own data asset
 module orcavote::seal_policy;
 
 use orcavote::registry::{Self, Registry};
+use sui::address;
 
 // ═══════════════════════════════════════════════════════════════════
 // Error codes
@@ -22,7 +24,7 @@ const STATUS_VOTING: u8 = 1;
 const STATUS_APPROVED: u8 = 2;
 
 // ═══════════════════════════════════════════════════════════════════
-// Identity Blob Approval
+// 1. Identity Blob Approval (voter-specific)
 // ═══════════════════════════════════════════════════════════════════
 
 /// Called by Seal key servers (dry-run) to check if caller can decrypt
@@ -35,7 +37,6 @@ entry fun seal_approve_identity(
     registry: &Registry,
     ctx: &TxContext,
 ) {
-    // Validate id starts with registry object ID
     let registry_id_bytes = object::id(registry).to_bytes();
     assert!(registry::is_prefix(registry_id_bytes, id), EInvalidSealId);
 
@@ -56,7 +57,7 @@ entry fun seal_approve_identity(
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Dataset Approval (post-vote release)
+// 2. Dataset Approval (post-vote release — anyone can decrypt)
 // ═══════════════════════════════════════════════════════════════════
 
 /// Called by Seal key servers (dry-run) to check if dataset can be
@@ -76,4 +77,29 @@ entry fun seal_approve_dataset(
 
     let poll = &registry.borrow_polls()[poll_id];
     assert!(registry::poll_status(poll) == STATUS_APPROVED, EPollNotApproved);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 3. Data Asset Approval (owner-only — personal encrypted files)
+// ═══════════════════════════════════════════════════════════════════
+
+/// Called by Seal key servers (dry-run) to check if caller can decrypt
+/// a data asset they own.
+///
+/// Approval: caller must be the owner address embedded in the id.
+/// `id` format: registry_object_id(32) ++ owner_address(32)
+entry fun seal_approve_data_asset(
+    id: vector<u8>,
+    registry: &Registry,
+    ctx: &TxContext,
+) {
+    let registry_id_bytes = object::id(registry).to_bytes();
+    assert!(registry::is_prefix(registry_id_bytes, id), EInvalidSealId);
+
+    // Extract owner address from id bytes (bytes 32..64)
+    let owner_bytes = registry::slice(&id, 32, 64);
+    let owner = address::from_bytes(owner_bytes);
+
+    // Caller must be the owner
+    assert!(owner == ctx.sender(), ENoAccess);
 }

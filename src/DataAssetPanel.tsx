@@ -21,7 +21,7 @@ import {
   Eye,
 } from 'lucide-react'
 import { C } from './theme'
-import { encryptRaw, fetchBlobFromWalrus, AGGREGATORS } from './seal-walrus'
+import { encryptForDataAsset, fetchBlobFromWalrus, AGGREGATORS, ORCAVOTE_PACKAGE_ID, ORCAVOTE_REGISTRY_ID, TESTNET_KEY_SERVERS } from './seal-walrus'
 import type { NetworkKey } from './seal-walrus'
 import { SessionKey, EncryptedObject, SealClient } from '@mysten/seal'
 import { Transaction } from '@mysten/sui/transactions'
@@ -30,9 +30,9 @@ import type { WalrusBlob } from './BlobIdPicker'
 import { walrus } from '@mysten/walrus'
 import walrusWasmUrl from '@mysten/walrus-wasm/web/walrus_wasm_bg.wasm?url'
 import { SuiGrpcClient } from '@mysten/sui/grpc'
+import { PACKAGE_ID, REGISTRY_ID } from './poll-transactions'
 
 /* ─── constants ─── */
-const SEAL_PACKAGE_ID = '0x2b5472a9002d97045c8448cda76284aa0de81df3ab902fdfc785feaa2c0b4cc0'
 const WALRUS_BLOB_TYPE_TESTNET = '0xd84704c17fc870b8764832c535aa6b11f21a95cd6f5bb38a9b07d2cf42220c66::blob::Blob'
 const WALRUS_BLOB_TYPE_MAINNET = '0xfdc88f7d7cf30afab2f82e8380d11ee8f70efb90e863d1de8616fae1bb09ea77::blob::Blob'
 
@@ -160,9 +160,9 @@ export default function DataAssetPanel() {
     setUploading(true)
     setError(null)
     try {
-      // 1. Seal encrypt
+      // 1. Seal encrypt (orcavote::seal_policy::seal_approve_data_asset)
       setUploadStep('encrypting')
-      const encrypted = await encryptRaw(fileBytes, currentAccount.address, network)
+      const encrypted = await encryptForDataAsset(fileBytes, currentAccount.address, network)
 
       // 2. Create Walrus client with upload relay
       const rpcUrl = network === 'testnet' ? 'https://fullnode.testnet.sui.io:443' : 'https://fullnode.mainnet.sui.io:443'
@@ -277,7 +277,7 @@ export default function DataAssetPanel() {
 
         const sessionKey = await SessionKey.create({
           address: currentAccount.address,
-          packageId: SEAL_PACKAGE_ID,
+          packageId: ORCAVOTE_PACKAGE_ID,
           ttlMin: 10,
           suiClient,
         })
@@ -285,23 +285,24 @@ export default function DataAssetPanel() {
         const { signature } = await signPersonalMessage({ message: msg })
         sessionKey.setPersonalMessageSignature(signature)
 
-        // private_seal pattern: seal_approve(id) — checks sender == owner
+        // seal_approve_data_asset: id = registry_id(32) ++ owner_address(32)
+        const registryBytes = fromHex(ORCAVOTE_REGISTRY_ID)
+        const ownerBytes = fromHex(currentAccount.address)
+        const sealId = new Uint8Array([...registryBytes, ...ownerBytes])
+
         const tx = new Transaction()
         tx.moveCall({
-          target: `${SEAL_PACKAGE_ID}::private_seal::seal_approve`,
+          target: `${ORCAVOTE_PACKAGE_ID}::seal_policy::seal_approve_data_asset`,
           arguments: [
-            tx.pure.vector('u8', fromHex(encObj.id)),
+            tx.pure.vector('u8', Array.from(sealId)),
+            tx.object(ORCAVOTE_REGISTRY_ID),
           ],
         })
         const txBytes = await tx.build({ client: suiClient, onlyTransactionKind: true })
 
         const sealClient = new SealClient({
           suiClient,
-          serverConfigs: [{
-            objectId: '0xb012378c9f3799fb5b1a7083da74a4069e3c3f1c93de0b27212a5799ce1e1e98',
-            weight: 1,
-            aggregatorUrl: 'https://seal-aggregator-testnet.mystenlabs.com',
-          }],
+          serverConfigs: TESTNET_KEY_SERVERS.map(s => ({ ...s })),
           verifyKeyServers: false,
         })
         decrypted = await sealClient.decrypt({ data: ciphertext, sessionKey, txBytes })
