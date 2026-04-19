@@ -5,7 +5,7 @@
 <h1 align="center">OrcaVote</h1>
 
 <p align="center">
-  <em>Oracle + Access — governance-driven data access by vote</em>
+  <em>Oracle Access by Vote</em>
 </p>
 
 <p align="center">

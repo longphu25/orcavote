@@ -2,10 +2,10 @@
 
 ## 1. Overview
 
-**Tên sản phẩm:** OrcaVote (Oracle + Access)
+**Tên sản phẩm:** OrcaVote (Oracle Access by Vote)
 **Tagline:** Vote-to-unlock private data.
 
-OrcaVote — viết tắt từ **Oracle Access** — là protocol trên Sui cho phép release dữ liệu nhạy cảm (dataset, báo cáo, AI training data…) chỉ khi một nhóm stakeholder bỏ phiếu ẩn danh đồng ý. Tên gợi ý cơ chế cốt lõi: dữ liệu (Oracle) chỉ được truy cập (Access) thông qua bỏ phiếu tập thể. Dữ liệu luôn được mã hóa bằng Seal và lưu trên Walrus, logic bỏ phiếu và điều kiện release được thực thi on-chain bằng Move.
+OrcaVote — viết tắt từ **Oracle Access by Vote** — là protocol trên Sui cho phép release dữ liệu nhạy cảm (dataset, báo cáo, AI training data…) chỉ khi một nhóm stakeholder bỏ phiếu ẩn danh đồng ý. Tên gợi ý cơ chế cốt lõi: dữ liệu (Oracle) chỉ được truy cập (Access) thông qua bỏ phiếu tập thể. Dữ liệu luôn được mã hóa bằng Seal và lưu trên Walrus, logic bỏ phiếu và điều kiện release được thực thi on-chain bằng Move.
 
 **Deployed:** Sui Testnet
 - Package: `0xc1ce937ce57cae994b643a320c092953d41298d924ca6f37ec0e100ff2abdd17`
