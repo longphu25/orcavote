@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://suiscan.xyz/testnet/object/0x115063746a65dce6e68997b5116af16188a164f724de111d87f9be6e085225f0">
+  <a href="https://suiscan.xyz/testnet/object/0xc1ce937ce57cae994b643a320c092953d41298d924ca6f37ec0e100ff2abdd17">
     <img src="https://img.shields.io/badge/Sui-Testnet-4DA2FF?style=flat-square&logo=data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxMiIgY3k9IjEyIiByPSIxMCIgZmlsbD0id2hpdGUiLz48L3N2Zz4=" alt="Sui Testnet" />
   </a>
   <img src="https://img.shields.io/badge/ZK-Groth16%20BN254-10B981?style=flat-square" alt="ZK Groth16" />
@@ -41,9 +41,9 @@ Data stays encrypted until a group collectively votes to release it. No single p
 
 | Object | ID |
 |--------|----|
-| Package | [`0x1150…25f0`](https://suiscan.xyz/testnet/object/0x115063746a65dce6e68997b5116af16188a164f724de111d87f9be6e085225f0) |
-| Registry (shared) | `0x04d714c372105c024a7b99d2d3fb9d8e79f159e335894c158dae11668b9a233e` |
-| Tx Digest | [`FWGbcCoM3W28SNY597XwDPBLHkUjLwoB4a1fj8aNNh7M`](https://suiscan.xyz/testnet/tx/FWGbcCoM3W28SNY597XwDPBLHkUjLwoB4a1fj8aNNh7M) |
+| Package | [`0xc1ce…dd17`](https://suiscan.xyz/testnet/object/0xc1ce937ce57cae994b643a320c092953d41298d924ca6f37ec0e100ff2abdd17) |
+| Registry (shared) | `0xa19f49c2ec3d5fb158680bf8ca62c661dc1e87960aec421bdb551efb4d5e1b6d` |
+| Tx Digest | [`3PAr4qzYHCUmVPKHqXzRG6pvXAqhH87wfmS9KBwh7fBh`](https://suiscan.xyz/testnet/tx/3PAr4qzYHCUmVPKHqXzRG6pvXAqhH87wfmS9KBwh7fBh) |
 
 Poll creation is permissionless — anyone can create a poll and becomes its admin.
 
@@ -104,7 +104,7 @@ All encryption uses the **orcavote package** — no external dependencies.
 | Total YES / NO count | Individual choices |
 | Vote timestamp | Identity secret |
 
-ZK proof guarantees: voter is a valid member, hasn't voted before, and committed to a specific choice — without revealing which member they are.
+Vote choice is encoded as `signal_hash = Poseidon(choice)` inside the ZK proof. The contract extracts YES/NO by comparing against precomputed hashes — `choice` is never passed as a plaintext parameter or emitted in events.
 
 ---
 
