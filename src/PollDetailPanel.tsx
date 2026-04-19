@@ -321,6 +321,10 @@ export default function PollDetailPanel({ poll, onBack }: PollDetailPanelProps) 
           verifyKeyServers: false,
         })
         decrypted = await sealClient.decrypt({ data: ciphertext, sessionKey, txBytes })
+        console.log('[OrcaVote] Seal decrypt success, decrypted size:', decrypted.length, 'ciphertext size:', ciphertext.length)
+        console.log('[OrcaVote] First 20 bytes decrypted:', Array.from(decrypted.slice(0, 20)))
+        console.log('[OrcaVote] First 20 bytes ciphertext:', Array.from(ciphertext.slice(0, 20)))
+        console.log('[OrcaVote] Same bytes?', decrypted.length === ciphertext.length && decrypted.every((b, i) => b === ciphertext[i]))
       } catch (sealErr) {
         // Seal decrypt failed — try data_asset pattern as fallback
         try {
@@ -356,6 +360,11 @@ export default function PollDetailPanel({ poll, onBack }: PollDetailPanelProps) 
         } catch {
           throw new Error(`Seal decrypt failed: ${sealErr instanceof Error ? sealErr.message : String(sealErr)}`)
         }
+      }
+
+      // Sanity check: if decrypted == ciphertext, decrypt didn't actually work
+      if (decrypted.length === ciphertext.length && decrypted.every((b, i) => b === ciphertext[i])) {
+        throw new Error('Decrypt returned identical bytes to ciphertext — decryption did not occur. The dataset may need to be re-encrypted for this poll.')
       }
 
       let text: string | null = null
@@ -872,7 +881,7 @@ export default function PollDetailPanel({ poll, onBack }: PollDetailPanelProps) 
                     {dataDecrypted.text ? 'Text' : 'Binary'} · {dataDecrypted.raw.length < 1024 ? `${dataDecrypted.raw.length} B` : `${(dataDecrypted.raw.length / 1024).toFixed(1)} KB`}
                   </span>
                   <button style={{ ...btnSm, padding: '2px 8px', fontSize: 10 }} onClick={() => {
-                    const blob = new Blob([dataDecrypted.raw.buffer as ArrayBuffer])
+                    const blob = new Blob([dataDecrypted.raw])
                     const url = URL.createObjectURL(blob)
                     const a = document.createElement('a')
                     a.href = url; a.download = `dataset_${poll.pollId.slice(0, 8)}`; a.click()
