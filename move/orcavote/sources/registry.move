@@ -259,6 +259,8 @@ public fun poll_admin(p: &Poll): address { p.admin }
 public fun poll_nullifiers_contains(p: &Poll, n: &vector<u8>): bool { p.nullifiers.contains(n) }
 
 public(package) fun poll_set_status(p: &mut Poll, s: u8) { p.status = s; }
+public(package) fun poll_set_data_blob(p: &mut Poll, blob_id: vector<u8>) { p.data_blob_id = blob_id; }
+public(package) fun poll_set_data_seal_identity(p: &mut Poll, identity: vector<u8>) { p.data_seal_identity = identity; }
 public(package) fun poll_inc_total_voters(p: &mut Poll) { p.total_voters = p.total_voters + 1; }
 public(package) fun poll_inc_yes(p: &mut Poll) { p.yes_count = p.yes_count + 1; }
 public(package) fun poll_inc_no(p: &mut Poll) { p.no_count = p.no_count + 1; }

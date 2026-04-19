@@ -31,6 +31,10 @@ export const AGGREGATORS: Record<NetworkKey, string> = {
 /** Seal demo package on testnet (allowlist-based policy) — used for DataAsset encrypt only */
 const SEAL_PACKAGE_ID = '0x2b5472a9002d97045c8448cda76284aa0de81df3ab902fdfc785feaa2c0b4cc0'
 
+/** OrcaVote package — used for seal_approve_dataset policy */
+const ORCAVOTE_PACKAGE_ID = '0x982f507de25cb88c8fd29b8a10d2375c81d39aa90b380956156aef61b0ab6eec'
+const ORCAVOTE_REGISTRY_ID = '0xf2a5b3f0ff9f0c53086060a396dc55bb95bc4ce4945201f0fc5217f82dfd8507'
+
 /** Decentralized key server (aggregator-backed) */
 const TESTNET_KEY_SERVERS = [
   {
@@ -167,6 +171,31 @@ export async function encryptRaw(
   const { encryptedObject } = await sealClient.encrypt({
     threshold: DEFAULT_THRESHOLD,
     packageId: SEAL_PACKAGE_ID,
+    id,
+    data: plaintext,
+  })
+  return encryptedObject
+}
+
+/**
+ * Encrypt plaintext for a specific poll's dataset (seal_approve_dataset policy).
+ * Uses orcavote package + id = registry_id(32) ++ poll_id(32).
+ * This must be called AFTER poll creation when poll_id is known.
+ */
+export async function encryptForPoll(
+  plaintext: Uint8Array,
+  pollId: string,
+  network: NetworkKey = 'testnet',
+): Promise<Uint8Array> {
+  const { toHex, fromHex } = await import('@mysten/sui/utils')
+  const sealClient = createSealClient(network)
+  const registryBytes = fromHex(ORCAVOTE_REGISTRY_ID)
+  const pollIdBytes = fromHex(pollId)
+  const idBytes = new Uint8Array([...registryBytes, ...pollIdBytes])
+  const id = toHex(idBytes)
+  const { encryptedObject } = await sealClient.encrypt({
+    threshold: DEFAULT_THRESHOLD,
+    packageId: ORCAVOTE_PACKAGE_ID,
     id,
     data: plaintext,
   })

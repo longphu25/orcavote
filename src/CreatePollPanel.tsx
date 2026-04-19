@@ -24,9 +24,11 @@ import {
   createPollFullTx,
   parsePollIdFromEvents,
   suiScanTxUrl,
+  setDataBlobTx,
 } from './poll-transactions'
 import type { NetworkKey } from './seal-walrus'
 import { buildFullMerklePath, hexToBigInt } from './merkle-pad'
+import { encryptForPoll, uploadToWalrus } from './seal-walrus'
 
 /* ─── styles ─── */
 const card = {
@@ -110,6 +112,13 @@ export default function CreatePollPanel({
   const [error, setError] = useState<string | null>(null)
   const [txDigest, setTxDigest] = useState<string | null>(null)
   const [pollId, setPollId] = useState<string | null>(null)
+
+  // Seal encrypt dataset state (after poll creation)
+  const [sealEncrypting, setSealEncrypting] = useState(false)
+  const [sealStep, setSealStep] = useState<string | null>(null)
+  const [sealDone, setSealDone] = useState(false)
+  const [sealError, setSealError] = useState<string | null>(null)
+  const [sealBlobId, setSealBlobId] = useState<string | null>(null)
 
   // Derived
   const voterCount = merkleResult?.identities.length ?? 0
@@ -204,6 +213,42 @@ export default function CreatePollPanel({
     signAndExecute, suiClient,
   ])
 
+  // Seal encrypt dataset with poll identity, upload to Walrus, update on-chain
+  const handleSealEncryptDataset = useCallback(async () => {
+    if (!pollId || !selectedBlobId || !currentAccount) return
+    setSealEncrypting(true)
+    setSealError(null)
+    try {
+      // 1. Fetch the original plaintext dataset from Walrus
+      setSealStep('Fetching original dataset…')
+      const { fetchBlobFromWalrus } = await import('./seal-walrus')
+      const plaintext = await fetchBlobFromWalrus(selectedBlobId, network)
+
+      // 2. Seal encrypt with orcavote package + registry_id + poll_id
+      setSealStep('Seal encrypting for poll…')
+      const encrypted = await encryptForPoll(plaintext, pollId, network)
+
+      // 3. Upload encrypted blob to Walrus
+      setSealStep('Uploading encrypted blob…')
+      const { blobId } = await uploadToWalrus(encrypted, network, 5)
+      setSealBlobId(blobId)
+
+      // 4. Update on-chain data_blob_id
+      setSealStep('Updating on-chain reference…')
+      const sealIdentity = `${pollId}` // stored as reference
+      const tx = setDataBlobTx(pollId, blobId, sealIdentity)
+      await signAndExecute({ transaction: tx })
+
+      setSealDone(true)
+      setSealStep(null)
+    } catch (e: unknown) {
+      setSealError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSealEncrypting(false)
+      setSealStep(null)
+    }
+  }, [pollId, selectedBlobId, currentAccount, network, signAndExecute])
+
   // Don't render if no merkle result yet
   if (!merkleResult) return null
 
@@ -277,6 +322,48 @@ export default function CreatePollPanel({
               </a>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Step 2: Seal Encrypt Dataset — shown after poll created, if dataset blob was selected */}
+      {pollId && selectedBlobId && !sealDone && (
+        <div style={{ padding: 16, borderRadius: 12, border: '1px solid rgba(245,158,11,0.3)', background: 'rgba(245,158,11,0.05)', marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <Zap size={14} color={C.accent} />
+            <span style={{ fontSize: 13, fontWeight: 700, color: C.accent }}>
+              Seal Encrypt Dataset for Poll
+            </span>
+          </div>
+          <p style={{ fontSize: 12, color: C.textMuted, margin: '0 0 12px' }}>
+            Re-encrypt dataset with poll identity so it can be decrypted by anyone after approval.
+          </p>
+          {sealError && (
+            <div style={{ padding: 8, borderRadius: 8, border: '1px solid rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.05)', marginBottom: 10 }}>
+              <span style={{ fontSize: 11, color: '#EF4444' }}>{sealError}</span>
+            </div>
+          )}
+          <button
+            style={{ ...btnPrimary, opacity: sealEncrypting ? 0.5 : 1 }}
+            onClick={handleSealEncryptDataset}
+            disabled={sealEncrypting}
+          >
+            {sealEncrypting
+              ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> {sealStep || 'Processing…'}</>
+              : <><Zap size={14} /> Seal Encrypt & Upload Dataset</>}
+          </button>
+        </div>
+      )}
+
+      {/* Seal encrypt done */}
+      {sealDone && sealBlobId && (
+        <div style={{ padding: 12, borderRadius: 10, border: '1px solid rgba(16,185,129,0.3)', background: 'rgba(16,185,129,0.05)', marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+            <CheckCircle size={14} color={C.green} />
+            <span style={{ fontSize: 12, fontWeight: 700, color: C.green }}>Dataset Seal-encrypted & on-chain updated</span>
+          </div>
+          <span style={{ fontSize: 11, color: C.textMuted }}>
+            New blob: {sealBlobId.slice(0, 16)}…{sealBlobId.slice(-6)}
+          </span>
         </div>
       )}
 

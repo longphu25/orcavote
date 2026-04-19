@@ -228,6 +228,26 @@ export function submitVoteTx(params: SubmitVoteParams): Transaction {
 // ─── Finalize ───
 
 /**
+ * Build transaction for governance::set_data_blob.
+ * Updates the dataset blob reference after Seal-encrypting with poll identity.
+ */
+export function setDataBlobTx(pollId: string, dataBlobId: string, dataSealIdentity: string): Transaction {
+  const tx = new Transaction()
+  tx.moveCall({
+    target: `${PACKAGE_ID}::governance::set_data_blob`,
+    arguments: [
+      tx.object(REGISTRY_ID),
+      tx.pure.id(pollId),
+      tx.pure.vector('u8', Array.from(strToBytes(dataBlobId))),
+      tx.pure.vector('u8', Array.from(strToBytes(dataSealIdentity))),
+    ],
+  })
+  return tx
+}
+
+// ─── Finalize ───
+
+/**
  * Build transaction for governance::finalize (permissionless, after deadline).
  */
 export function finalizePollTx(pollId: string): Transaction {

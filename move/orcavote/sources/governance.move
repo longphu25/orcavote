@@ -114,6 +114,27 @@ public fun register_voters(
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// Update Data Blob (after Seal encrypt with poll_id)
+// ═══════════════════════════════════════════════════════════════════
+
+/// Update the dataset blob reference after Seal-encrypting with the poll's identity.
+/// Only the poll admin can call. Must be called before or during Voting status.
+public fun set_data_blob(
+    registry: &mut Registry,
+    poll_id: ID,
+    data_blob_id: vector<u8>,
+    data_seal_identity: vector<u8>,
+    ctx: &TxContext,
+) {
+    assert_poll_admin(registry, poll_id, ctx);
+    let poll = &mut registry.borrow_polls_mut()[poll_id];
+    let status = registry::poll_status(poll);
+    assert!(status == STATUS_SETUP || status == STATUS_VOTING, EPollAlreadyFinalized);
+    registry::poll_set_data_blob(poll, data_blob_id);
+    registry::poll_set_data_seal_identity(poll, data_seal_identity);
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // Start Voting
 // ═══════════════════════════════════════════════════════════════════
 
