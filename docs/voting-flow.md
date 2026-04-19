@@ -1,5 +1,7 @@
 # OrcaVote — Voting Flow Guide
 
+> Tài liệu liên quan: [UI Guide](ui-guide.md) · [ZK Proof](zk-proof.md) · [On-Chain](on-chain.md)
+
 ## Tổng quan
 
 OrcaVote là hệ thống bỏ phiếu ẩn danh trên Sui blockchain, sử dụng ZK Proof (Groth16) để đảm bảo không ai biết voter đã chọn YES hay NO, kể cả khi transaction được ký công khai trên chain.
