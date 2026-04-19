@@ -325,9 +325,49 @@ export default function PollDetailPanel({ poll, onBack }: PollDetailPanelProps) 
           verifyKeyServers: false,
         })
         decrypted = await sealClient.decrypt({ data: ciphertext, sessionKey, txBytes })
-      } catch {
-        // Not Seal-encrypted — show raw bytes
-        decrypted = ciphertext
+      } catch (sealErr) {
+        // Seal decrypt failed — try data_asset pattern as fallback
+        // (blob may have been encrypted with seal_approve_data_asset instead of seal_approve_dataset)
+        try {
+          const encObj2 = EncryptedObject.parse(ciphertext)
+
+          // Check if the encrypted object's packageId matches orcavote
+          // If id is registry_id(32) + owner_address(32), try seal_approve_data_asset
+          const sessionKey2 = await SessionKey.create({
+            address: currentAccount.address,
+            packageId: ORCAVOTE_PACKAGE_ID,
+            ttlMin: 10,
+            suiClient,
+          })
+          const msg2 = sessionKey2.getPersonalMessage()
+          const { signature: sig2 } = await signPersonalMessage({ message: msg2 })
+          sessionKey2.setPersonalMessageSignature(sig2)
+
+          // Try with owner address pattern
+          const registryBytes2 = fromHex(ORCAVOTE_REGISTRY_ID)
+          const ownerBytes = fromHex(currentAccount.address)
+          const sealId2 = new Uint8Array([...registryBytes2, ...ownerBytes])
+
+          const tx2 = new Transaction()
+          tx2.moveCall({
+            target: `${ORCAVOTE_PACKAGE_ID}::seal_policy::seal_approve_data_asset`,
+            arguments: [
+              tx2.pure.vector('u8', Array.from(sealId2)),
+              tx2.object(ORCAVOTE_REGISTRY_ID),
+            ],
+          })
+          const txBytes2 = await tx2.build({ client: suiClient, onlyTransactionKind: true })
+
+          const sealClient2 = new SealClient({
+            suiClient,
+            serverConfigs: TESTNET_KEY_SERVERS.map(s => ({ ...s })),
+            verifyKeyServers: false,
+          })
+          decrypted = await sealClient2.decrypt({ data: ciphertext, sessionKey: sessionKey2, txBytes: txBytes2 })
+        } catch {
+          // Both patterns failed — show error, don't return garbage
+          throw new Error(`Seal decrypt failed: ${sealErr instanceof Error ? sealErr.message : String(sealErr)}`)
+        }
       }
 
       let text: string | null = null
