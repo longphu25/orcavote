@@ -15,8 +15,8 @@ import type { IdentityBlob } from './zk-merkle'
 export type NetworkKey = 'testnet' | 'mainnet'
 
 /** OrcaVote package — single Seal package for all policies */
-export const ORCAVOTE_PACKAGE_ID = '0x982f507de25cb88c8fd29b8a10d2375c81d39aa90b380956156aef61b0ab6eec'
-export const ORCAVOTE_REGISTRY_ID = '0xf2a5b3f0ff9f0c53086060a396dc55bb95bc4ce4945201f0fc5217f82dfd8507'
+export const ORCAVOTE_PACKAGE_ID = '0x115063746a65dce6e68997b5116af16188a164f724de111d87f9be6e085225f0'
+export const ORCAVOTE_REGISTRY_ID = '0x04d714c372105c024a7b99d2d3fb9d8e79f159e335894c158dae11668b9a233e'
 
 const RPC_URLS: Record<NetworkKey, string> = {
   testnet: 'https://fullnode.testnet.sui.io:443',
