@@ -291,10 +291,10 @@ export default function PollDetailPanel({ poll, onBack }: PollDetailPanelProps) 
       try {
         const encObj = EncryptedObject.parse(ciphertext)
 
-        // 2. Create session key
+        // 2. Create session key — use packageId from the encrypted object itself
         const sessionKey = await SessionKey.create({
           address: currentAccount.address,
-          packageId: ORCAVOTE_PACKAGE_ID,
+          packageId: encObj.packageId,
           ttlMin: 10,
           suiClient,
         })
@@ -302,17 +302,13 @@ export default function PollDetailPanel({ poll, onBack }: PollDetailPanelProps) 
         const { signature } = await signPersonalMessage({ message: msg })
         sessionKey.setPersonalMessageSignature(signature)
 
-        // 3. Build seal_approve_dataset PTB
-        // id format: registry_object_id(32) ++ poll_id(32)
-        const registryBytes = fromHex(ORCAVOTE_REGISTRY_ID)
-        const pollIdBytes = fromHex(poll.pollId)
-        const sealId = new Uint8Array([...registryBytes, ...pollIdBytes])
-
+        // 3. Build seal_approve_dataset PTB using the id embedded in the encrypted object
+        // The encrypted object knows its own id — use it directly
         const tx = new Transaction()
         tx.moveCall({
-          target: `${ORCAVOTE_PACKAGE_ID}::seal_policy::seal_approve_dataset`,
+          target: `${encObj.packageId}::seal_policy::seal_approve_dataset`,
           arguments: [
-            tx.pure.vector('u8', Array.from(sealId)),
+            tx.pure.vector('u8', fromHex(encObj.id)),
             tx.object(ORCAVOTE_REGISTRY_ID),
           ],
         })
@@ -327,15 +323,12 @@ export default function PollDetailPanel({ poll, onBack }: PollDetailPanelProps) 
         decrypted = await sealClient.decrypt({ data: ciphertext, sessionKey, txBytes })
       } catch (sealErr) {
         // Seal decrypt failed — try data_asset pattern as fallback
-        // (blob may have been encrypted with seal_approve_data_asset instead of seal_approve_dataset)
         try {
           const encObj2 = EncryptedObject.parse(ciphertext)
 
-          // Check if the encrypted object's packageId matches orcavote
-          // If id is registry_id(32) + owner_address(32), try seal_approve_data_asset
           const sessionKey2 = await SessionKey.create({
             address: currentAccount.address,
-            packageId: ORCAVOTE_PACKAGE_ID,
+            packageId: encObj2.packageId,
             ttlMin: 10,
             suiClient,
           })
@@ -343,16 +336,12 @@ export default function PollDetailPanel({ poll, onBack }: PollDetailPanelProps) 
           const { signature: sig2 } = await signPersonalMessage({ message: msg2 })
           sessionKey2.setPersonalMessageSignature(sig2)
 
-          // Try with owner address pattern
-          const registryBytes2 = fromHex(ORCAVOTE_REGISTRY_ID)
-          const ownerBytes = fromHex(currentAccount.address)
-          const sealId2 = new Uint8Array([...registryBytes2, ...ownerBytes])
-
+          // Try seal_approve_data_asset with the id from the encrypted object
           const tx2 = new Transaction()
           tx2.moveCall({
-            target: `${ORCAVOTE_PACKAGE_ID}::seal_policy::seal_approve_data_asset`,
+            target: `${encObj2.packageId}::seal_policy::seal_approve_data_asset`,
             arguments: [
-              tx2.pure.vector('u8', Array.from(sealId2)),
+              tx2.pure.vector('u8', fromHex(encObj2.id)),
               tx2.object(ORCAVOTE_REGISTRY_ID),
             ],
           })
@@ -365,7 +354,6 @@ export default function PollDetailPanel({ poll, onBack }: PollDetailPanelProps) 
           })
           decrypted = await sealClient2.decrypt({ data: ciphertext, sessionKey: sessionKey2, txBytes: txBytes2 })
         } catch {
-          // Both patterns failed — show error, don't return garbage
           throw new Error(`Seal decrypt failed: ${sealErr instanceof Error ? sealErr.message : String(sealErr)}`)
         }
       }
