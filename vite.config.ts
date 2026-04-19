@@ -23,13 +23,7 @@ export default defineConfig({
         main: path.resolve(__dirname, 'index.html'),
         orcavote: path.resolve(__dirname, 'orcavote.html'),
       },
-      external: ['gsap', 'motion', 'animejs'],
-      preserveEntrySignatures: 'exports-only',
       output: {
-        globals: {
-          gsap: 'gsap',
-          motion: 'Motion',
-        },
         // Keep plugin entry points at predictable paths (no hash)
         entryFileNames(chunk) {
           if (chunk.name.startsWith('plugins/')) {
