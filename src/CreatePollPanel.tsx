@@ -221,7 +221,7 @@ export default function CreatePollPanel({
     setSealEncrypting(true)
     setSealError(null)
     try {
-      const { fetchBlobFromWalrus, ORCAVOTE_PACKAGE_ID, ORCAVOTE_REGISTRY_ID, TESTNET_KEY_SERVERS } = await import('./seal-walrus')
+      const { fetchBlobFromWalrus, ORCAVOTE_REGISTRY_ID, TESTNET_KEY_SERVERS } = await import('./seal-walrus')
       const { EncryptedObject, SealClient, SessionKey } = await import('@mysten/seal')
       const { Transaction } = await import('@mysten/sui/transactions')
       const { fromHex } = await import('@mysten/sui/utils')

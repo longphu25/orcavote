@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import gsap from 'gsap'
-import { Layers, Database, Cpu, Globe, Fingerprint, ShieldCheck, Zap } from 'lucide-react'
+import { Layers, Database, Cpu, Globe, Fingerprint, ShieldCheck } from 'lucide-react'
 import { C } from '../../theme'
 
 const architectureLayers = [
@@ -161,7 +160,7 @@ export default function Architecture() {
   useEffect(() => {
     const interval = setInterval(() => {
       setActiveLayer((prev) => (prev + 1) % architectureLayers.length)
-    }, 4500) // Switch every 4.5 seconds
+    }, 10000) // Switch every 10 seconds (giảm tốc độ chuyển layer)
 
     return () => clearInterval(interval)
   }, [])

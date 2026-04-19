@@ -364,6 +364,8 @@ function Dashboard({ activeTab, setActiveTab }: { activeTab: TabKey; setActiveTa
               votingEnd: 0,
               admin: '',
               councilRoot: '',
+              dataBlobId: '',
+              dataSealIdentity: '',
             })
             setActiveTab('polls')
           }} />}

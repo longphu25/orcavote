@@ -74,22 +74,22 @@ export function createSealClient(network: NetworkKey): SealClient {
 // ─── Seal ID builders ───
 
 /**
- * Build Seal id for data asset: registry_id(32) ++ asset_id(32)
+ * Build Seal id for data asset: registry_id(32) ++ owner_address(32)
  * Used by seal_approve_data_asset — owner can decrypt.
  */
-export function buildDataAssetSealId(assetId: string): string {
-  const { toHex, fromHex } = require('@mysten/sui/utils') as typeof import('@mysten/sui/utils')
+export async function buildDataAssetSealId(ownerAddress: string): Promise<string> {
+  const { toHex, fromHex } = await import('@mysten/sui/utils')
   const registryBytes = fromHex(ORCAVOTE_REGISTRY_ID)
-  const assetBytes = fromHex(assetId)
-  return toHex(new Uint8Array([...registryBytes, ...assetBytes]))
+  const ownerBytes = fromHex(ownerAddress)
+  return toHex(new Uint8Array([...registryBytes, ...ownerBytes]))
 }
 
 /**
  * Build Seal id for dataset: registry_id(32) ++ poll_id(32)
  * Used by seal_approve_dataset — anyone can decrypt after Approved.
  */
-export function buildDatasetSealId(pollId: string): string {
-  const { toHex, fromHex } = require('@mysten/sui/utils') as typeof import('@mysten/sui/utils')
+export async function buildDatasetSealId(pollId: string): Promise<string> {
+  const { toHex, fromHex } = await import('@mysten/sui/utils')
   const registryBytes = fromHex(ORCAVOTE_REGISTRY_ID)
   const pollBytes = fromHex(pollId)
   return toHex(new Uint8Array([...registryBytes, ...pollBytes]))

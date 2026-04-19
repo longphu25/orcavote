@@ -36,7 +36,7 @@ import {
 } from './poll-transactions'
 import type { PollInfo } from './poll-transactions'
 import type { NetworkKey } from './seal-walrus'
-import { fetchBlobFromWalrus, AGGREGATORS, ORCAVOTE_PACKAGE_ID, ORCAVOTE_REGISTRY_ID, TESTNET_KEY_SERVERS } from './seal-walrus'
+import { fetchBlobFromWalrus, AGGREGATORS, ORCAVOTE_REGISTRY_ID, TESTNET_KEY_SERVERS } from './seal-walrus'
 import { SessionKey, EncryptedObject, SealClient } from '@mysten/seal'
 import { Transaction } from '@mysten/sui/transactions'
 import { fromHex } from '@mysten/sui/utils'
@@ -892,7 +892,7 @@ export default function PollDetailPanel({ poll, onBack }: PollDetailPanelProps) 
                     {dataDecrypted.text ? 'Text' : 'Binary'} · {dataDecrypted.raw.length < 1024 ? `${dataDecrypted.raw.length} B` : `${(dataDecrypted.raw.length / 1024).toFixed(1)} KB`}
                   </span>
                   <button style={{ ...btnSm, padding: '2px 8px', fontSize: 10 }} onClick={() => {
-                    const blob = new Blob([dataDecrypted.raw])
+                    const blob = new Blob([new Uint8Array(dataDecrypted.raw)])
                     const url = URL.createObjectURL(blob)
                     const a = document.createElement('a')
                     a.href = url; a.download = `dataset_${poll.pollId.slice(0, 8)}`; a.click()
