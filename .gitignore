@@ -26,3 +26,4 @@ dist-ssr
 # Circuit build artifacts (regenerated via `cd circuits && make all`)
 circuits/build/
 circuits/node_modules/
+docs/presentation-script.md
