@@ -379,11 +379,83 @@ export default function PollDetailPanel({ poll, onBack }: PollDetailPanelProps) 
       const rawBytes = await fetchBlobFromWalrus(blobIdStr, network)
       const identity: IdentityBlob = JSON.parse(new TextDecoder().decode(rawBytes))
 
-      // 3. Build full-depth Merkle tree and get proof path
-      //    WASM may return depth=0 for single-leaf trees — we rebuild to depth 10
+      // 3. Fetch ALL voters' commitments to rebuild the correct Merkle tree
+      //    The tree was built with all voters' commitments — we need them all
       setStep('proving')
-      const commitmentBigints = [hexToBigInt(identity.identity_commitment)]
-      const fullPath = await buildFullMerklePath(commitmentBigints, identity.leaf_index)
+
+      // 3a. Get voter list for this poll
+      const voterListTx = new Transaction()
+      voterListTx.moveCall({
+        target: `${PACKAGE_ID}::governance::poll_voter_list`,
+        arguments: [voterListTx.object(REGISTRY_ID), voterListTx.pure.id(poll.pollId)],
+      })
+      const voterListResult = await suiClient.devInspectTransactionBlock({
+        transactionBlock: voterListTx,
+        sender: currentAccount.address,
+      })
+      const voterListBytes = voterListResult.results?.[0]?.returnValues?.[0]?.[0] as number[] | undefined
+
+      let allCommitments: bigint[]
+      let myLeafIndex: number
+
+      if (voterListBytes && voterListBytes.length > 1) {
+        // Parse BCS vector<address>: ULEB128 length + N × 32-byte addresses
+        let offset = 0
+        let len = 0
+        let shift = 0
+        while (offset < voterListBytes.length) {
+          const b = voterListBytes[offset++]
+          len |= (b & 0x7f) << shift
+          if ((b & 0x80) === 0) break
+          shift += 7
+        }
+
+        const voterAddresses: string[] = []
+        for (let i = 0; i < len; i++) {
+          const addrBytes = voterListBytes.slice(offset + i * 32, offset + (i + 1) * 32)
+          voterAddresses.push('0x' + Array.from(addrBytes).map(b => b.toString(16).padStart(2, '0')).join(''))
+        }
+
+        // 3b. Fetch each voter's identity blob to get their commitment
+        const commitments: bigint[] = []
+        let foundIndex = -1
+        for (let i = 0; i < voterAddresses.length; i++) {
+          const addr = voterAddresses[i]
+          try {
+            const refTx = new Transaction()
+            refTx.moveCall({
+              target: `${PACKAGE_ID}::governance::get_voter_ref`,
+              arguments: [refTx.object(REGISTRY_ID), refTx.pure.id(poll.pollId), refTx.pure.address(addr)],
+            })
+            const refRes = await suiClient.devInspectTransactionBlock({
+              transactionBlock: refTx,
+              sender: currentAccount.address,
+            })
+            const blobBytes = refRes.results?.[0]?.returnValues?.[0]?.[0] as number[] | undefined
+            if (!blobBytes) continue
+            const bid = decodeBcsVectorU8AsString(blobBytes)
+            const raw = await fetchBlobFromWalrus(bid, network)
+            const id: IdentityBlob = JSON.parse(new TextDecoder().decode(raw))
+            commitments.push(hexToBigInt(id.identity_commitment))
+            if (addr.toLowerCase() === currentAccount.address.toLowerCase()) {
+              foundIndex = i
+            }
+          } catch {
+            // If we can't fetch a voter's blob, use 0 as placeholder
+            commitments.push(0n)
+          }
+        }
+
+        allCommitments = commitments
+        myLeafIndex = foundIndex >= 0 ? foundIndex : (identity.leaf_index ?? 0)
+      } else {
+        // Fallback: single voter
+        allCommitments = [hexToBigInt(identity.identity_commitment)]
+        myLeafIndex = identity.leaf_index ?? 0
+      }
+
+      // 3c. Build full-depth Merkle tree with ALL commitments
+      const fullPath = await buildFullMerklePath(allCommitments, myLeafIndex)
 
       const signalHash = await hashSignal(choice)
       const externalNullifier = await hashExternalNullifier(poll.pollId)
